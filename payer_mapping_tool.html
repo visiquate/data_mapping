@@ -169,7 +169,7 @@
                 </div>
                 <div class="upload-box" id="mappingDropZone">
                     <h3>Previous Mapping (Optional)</h3>
-                    <p>Upload saved mapping file (.json)</p>
+                    <p>Upload saved mapping or UiPath output (.json)</p>
                     <input type="file" id="mappingFile" accept=".json">
                     <button class="upload-btn" onclick="document.getElementById('mappingFile').click()">Choose File</button>
                     <div class="file-name" id="mappingFileName"></div>
@@ -215,6 +215,10 @@
             </div>
         </div>
     </div>
+
+    <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
+        Payer Mapping Tool v2.1
+    </footer>
 
     <div class="toast" id="toast"></div>
     <div class="auto-save-indicator" id="autoSaveIndicator">Mappings saved</div>
@@ -405,10 +409,40 @@
         try {
             const text = await file.text();
             const mappingData = JSON.parse(text);
-            currentMappings = mappingData.mappings || {};
+
+            // Detect format: UiPath format is an array, progress format has a mappings object
+            if (Array.isArray(mappingData)) {
+                // UiPath format - convert to internal mapping format
+                currentMappings = convertUiPathToMappings(mappingData);
+                showToast('Loaded ' + Object.keys(currentMappings).length + ' mappings from UiPath file', 'success');
+            } else {
+                // Progress format
+                currentMappings = mappingData.mappings || {};
+                showToast('Loaded ' + Object.keys(currentMappings).length + ' mappings', 'success');
+            }
             applyMappingsToInterface();
-            showToast('Loaded ' + Object.keys(currentMappings).length + ' mappings', 'success');
         } catch (error) { showToast('Error: ' + error.message, 'error'); }
+    }
+
+    function convertUiPathToMappings(uipathData) {
+        const mappings = {};
+        uipathData.forEach(entry => {
+            const stateAbbrev = entry.LocationCode;
+            const fullState = STATE_MAP[stateAbbrev] || stateAbbrev;
+            const payerId = entry.AvailityPayerID;
+
+            // Each queue entry is "PlanName, StateAbbrev"
+            (entry.Queues || []).forEach(queue => {
+                // Remove the state suffix (e.g., ", TX") to get just the plan name
+                const planName = queue.replace(/, [A-Z]{2}$/, '');
+                const mappingKey = fullState + '|' + planName;
+                mappings[mappingKey] = {
+                    availityPayerId: payerId,
+                    availityPayerName: payerId // UiPath format only has ID, not name
+                };
+            });
+        });
+        return mappings;
     }
 
     async function handleAvailityFile(e) {
