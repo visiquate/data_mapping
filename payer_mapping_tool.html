@@ -209,15 +209,24 @@
 
         <div class="card hidden" id="actionsSection">
             <h2>Step 3: Export</h2>
-            <div class="action-buttons">
-                <button class="btn btn-secondary" id="saveMappingBtn">Save Mapping Progress</button>
-                <button class="btn btn-success" id="exportJsonBtn">Export for UiPath (.json)</button>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
+                <div class="action-buttons" style="margin-top: 0;">
+                    <button class="btn btn-secondary" id="saveMappingBtn">Save Mapping Progress</button>
+                    <button class="btn btn-success" id="exportJsonBtn">Export for UiPath (.json)</button>
+                </div>
+                <div class="upload-box" id="schemaDropZone" style="border-width: 1px; padding: 15px; min-width: 250px;">
+                    <h3 style="font-size: 0.9em;">Update Page Schema (Optional)</h3>
+                    <p style="font-size: 0.8em;">Upload new schema mapping (.json)</p>
+                    <input type="file" id="schemaFile" accept=".json">
+                    <button class="upload-btn" style="padding: 6px 12px; font-size: 0.8em;" onclick="document.getElementById('schemaFile').click()">Choose File</button>
+                    <div class="file-name" id="schemaFileName" style="font-size: 0.8em;"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v2.3
+        Payer Mapping Tool v3.0
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -246,6 +255,10 @@
         'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
     };
     const STATE_ABBREV = Object.fromEntries(Object.entries(STATE_MAP).map(([k, v]) => [v, k]));
+    // Embedded Page Schema Data
+    const PAGE_SCHEMA_DATA = {"20554": 1, "AETNA": 2, "ABH01": 4, "WLPNT": 5, "BCBSTX": 6, "HCSV2": 7, "HUMANA": 9, "190": 8, "HMAPD": 0, "193": 0, "661": 5, "551": 0, "66003": 8, "91051": 0, "1260": 0, "46148": 0, "76498": 0, "10550": 0, "LOUISIANA%2520HEALTHCARE%2520CONNECTIONS": 10, "Superior": 11, "OTHERBLUEPLANS-TX": 0, "88221": 0, "75261": 0, "80141T": 0, "00390": 4, "00932": 9, "00430": 8, "00430F": 8, "55891": 8, "59355M": 8, "38336": 1, "A3144": 1, "A6001": 10, "IOWATOTALCARE": 10, "NEBRASKA%2520TOTAL%2520CARE": 10, "A52189": 0, "BHOVO": 0, "52189": 0, "A6014": 10, "160": 14, "A6863": 1, "DEVOT": 12, "COORDINATED%2520CARE": 10, "WCCENTENE": 10, "A8822": 15, "UHC": 17};
+    let PAGE_SCHEMAS = PAGE_SCHEMA_DATA;
+
 
     let AVAILITY_PAYERS = AVAILITY_PAYERS_DATA;
     let placementData = [];
@@ -356,6 +369,8 @@
         setupDragDrop('availityDropZone', 'availityFile');
         document.getElementById('saveMappingBtn').addEventListener('click', saveMappingProgress);
         document.getElementById('exportJsonBtn').addEventListener('click', exportForUiPath);
+        document.getElementById('schemaFile').addEventListener('change', handleSchemaFile);
+        setupDragDrop('schemaDropZone', 'schemaFile');
     }
 
     function setupDragDrop(zoneId, inputId) {
@@ -465,6 +480,19 @@
             });
             renderMappingInterface();
             showToast('Availity list updated', 'success');
+        } catch (error) { showToast('Error: ' + error.message, 'error'); }
+    }
+
+    async function handleSchemaFile(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById('schemaFileName').textContent = file.name;
+        document.getElementById('schemaDropZone').classList.add('has-file');
+        try {
+            const text = await file.text();
+            PAGE_SCHEMAS = JSON.parse(text);
+            const count = Object.keys(PAGE_SCHEMAS).length;
+            showToast('Loaded ' + count + ' page schemas', 'success');
         } catch (error) { showToast('Error: ' + error.message, 'error'); }
     }
 
@@ -667,7 +695,9 @@
                 const stateAbbrev = plan.stateAbbrev;
                 const key = stateAbbrev + '|' + payerId;
                 if (!outputByPayerState[key]) {
-                    outputByPayerState[key] = { LocationCode: stateAbbrev, AvailityPayerID: payerId, ClaimDataPageLayoutType: 1, Queues: [] };
+                    // Look up schema from PAGE_SCHEMAS, default to 0 if not found
+                    const schemaType = PAGE_SCHEMAS.hasOwnProperty(payerId) ? PAGE_SCHEMAS[payerId] : 0;
+                    outputByPayerState[key] = { LocationCode: stateAbbrev, AvailityPayerID: payerId, ClaimDataPageLayoutType: schemaType, Queues: [] };
                 }
                 const queueName = plan.planName + ', ' + stateAbbrev;
                 if (!outputByPayerState[key].Queues.includes(queueName)) outputByPayerState[key].Queues.push(queueName);
