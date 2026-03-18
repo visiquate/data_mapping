@@ -145,7 +145,7 @@
 <body>
     <div class="container">
         <h1>Payer Mapping Tool</h1>
-        <p class="subtitle">Map placement file payers to Availity payers for claim status automation</p>
+        <p class="subtitle">Map placement file plans to portal plan names</p>
 
         <div class="card">
             <h2>Client Setup</h2>
@@ -226,7 +226,7 @@
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v4.0
+        Payer Mapping Tool v4.1
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -589,7 +589,7 @@
             const stateAbbrev = plans[0]?.stateAbbrev || STATE_ABBREV[state] || '';
 
             stateSection.innerHTML = '<div class="state-header"><span>' + state + ' (' + stateAbbrev + ')</span><span class="state-badge">' + plans.length + ' plans</span></div>' +
-                '<table class="mapping-table"><thead><tr><th style="width:40%">Plan Name</th><th style="width:15%">Volume</th><th style="width:45%">Availity Payer</th></tr></thead><tbody>' +
+                '<table class="mapping-table"><thead><tr><th style="width:40%">Plan Name</th><th style="width:15%">Volume</th><th style="width:45%">Payer Mapping</th></tr></thead><tbody>' +
                 plans.map(plan => renderPlanRow(plan, state)).join('') + '</tbody></table>';
             container.appendChild(stateSection);
         });
@@ -603,10 +603,8 @@
         const mappingKey = state + '|' + plan.planName;
         const mapping = currentMappings[mappingKey];
         const isMapped = mapping?.availityPayerId;
-        const isNotAvailable = mapping?.availityPayerId === 'not available';
-        const isUHC = mapping?.availityPayerId === 'UHC';
-        const isSuperior = mapping?.availityPayerId === 'Superior';
-        const isAltPortal = isNotAvailable || isUHC || isSuperior;
+        const altPortalValues = ['not available', 'unmapped', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
+        const isAltPortal = altPortalValues.includes(mapping?.availityPayerId);
         const rowClass = isAltPortal ? 'unmapped' : (isMapped ? 'mapped' : '');
         const selectClass = isAltPortal ? 'not-available' : (isMapped ? 'mapped' : '');
         const availityPayers = AVAILITY_PAYERS[state] || [];
@@ -616,9 +614,14 @@
             '<td class="volume">' + plan.volume.toLocaleString() + '</td>' +
             '<td><select class="payer-select ' + selectClass + '" data-plan="' + escapeHtml(plan.planName) + '" data-state="' + escapeHtml(state) + '">' +
             '<option value="">-- Select Payer --</option>' +
-            '<option value="not available"' + (isNotAvailable ? ' selected' : '') + '>Not Available</option>' +
-            '<option value="UHC"' + (isUHC ? ' selected' : '') + '>UHC Portal</option>' +
-            '<option value="Superior"' + (isSuperior ? ' selected' : '') + '>Superior Portal</option>' +
+            '<option value="unmapped"' + (mapping?.availityPayerId === 'unmapped' ? ' selected' : '') + '>Unmapped</option>' +
+            '<option value="not available"' + (mapping?.availityPayerId === 'not available' ? ' selected' : '') + '>Not Available</option>' +
+            '<option value="Cigna"' + (mapping?.availityPayerId === 'Cigna' ? ' selected' : '') + '>Cigna Portal</option>' +
+            '<option value="HPN"' + (mapping?.availityPayerId === 'HPN' ? ' selected' : '') + '>HPN Portal</option>' +
+            '<option value="OptumCare"' + (mapping?.availityPayerId === 'OptumCare' ? ' selected' : '') + '>OptumCare Portal</option>' +
+            '<option value="Superior"' + (mapping?.availityPayerId === 'Superior' ? ' selected' : '') + '>Superior Portal</option>' +
+            '<option value="UHC"' + (mapping?.availityPayerId === 'UHC' ? ' selected' : '') + '>UHC Portal</option>' +
+            '<option value="UMR"' + (mapping?.availityPayerId === 'UMR' ? ' selected' : '') + '>UMR Portal</option>' +
             availityPayers.map(p => '<option value="' + escapeHtml(p.payerId) + '" data-payer-name="' + escapeHtml(p.payerName) + '"' +
                 (mapping?.availityPayerId === p.payerId ? ' selected' : '') + '>' + escapeHtml(p.payerName) + ' (' + escapeHtml(p.payerId) + ')</option>').join('') +
             '</select></td></tr>';
