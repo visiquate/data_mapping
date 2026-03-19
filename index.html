@@ -174,13 +174,6 @@
                     <button class="upload-btn" onclick="document.getElementById('mappingFile').click()">Choose File</button>
                     <div class="file-name" id="mappingFileName"></div>
                 </div>
-                <div class="upload-box" id="availityDropZone">
-                    <h3>Update Availity List (Optional)</h3>
-                    <p>Upload new Availity payer list (.xlsx)</p>
-                    <input type="file" id="availityFile" accept=".xlsx">
-                    <button class="upload-btn" onclick="document.getElementById('availityFile').click()">Choose File</button>
-                    <div class="file-name" id="availityFileName"></div>
-                </div>
             </div>
         </div>
 
@@ -284,6 +277,7 @@
     let currentMappings = {};
     let currentFilter = 'all';
     let clientName = '';
+    const ALT_PORTAL_VALUES = ['not available', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
 
     document.addEventListener('DOMContentLoaded', async () => {
         AVAILITY_PAYERS = await loadAvailityPayers();
@@ -384,8 +378,6 @@
         setupDragDrop('placementDropZone', 'placementFile');
         document.getElementById('mappingFile').addEventListener('change', handleMappingFile);
         setupDragDrop('mappingDropZone', 'mappingFile');
-        document.getElementById('availityFile').addEventListener('change', handleAvailityFile);
-        setupDragDrop('availityDropZone', 'availityFile');
         document.getElementById('saveMappingBtn').addEventListener('click', saveMappingProgress);
         document.getElementById('exportJsonBtn').addEventListener('click', exportForUiPath);
         document.getElementById('schemaFile').addEventListener('change', handleSchemaFile);
@@ -498,27 +490,6 @@
         return mappings;
     }
 
-    async function handleAvailityFile(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        document.getElementById('availityFileName').textContent = file.name;
-        document.getElementById('availityDropZone').classList.add('has-file');
-        try {
-            const data = await readFile(file);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(sheet);
-            AVAILITY_PAYERS = {};
-            rows.forEach(row => {
-                const state = row['State'];
-                if (!state) return;
-                if (!AVAILITY_PAYERS[state]) AVAILITY_PAYERS[state] = [];
-                AVAILITY_PAYERS[state].push({ payerName: row['Payer Name'], payerId: String(row['Payer ID']) });
-            });
-            renderMappingInterface();
-            showToast('Availity list updated', 'success');
-        } catch (error) { showToast('Error: ' + error.message, 'error'); }
-    }
 
     async function handleSchemaFile(e) {
         const file = e.target.files[0];
@@ -640,8 +611,7 @@
         const mappingKey = state + '|' + plan.planName;
         const mapping = currentMappings[mappingKey];
         const isMapped = mapping?.availityPayerId;
-        const altPortalValues = ['not available', 'unmapped', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
-        const isAltPortal = altPortalValues.includes(mapping?.availityPayerId);
+        const isAltPortal = ALT_PORTAL_VALUES.includes(mapping?.availityPayerId);
         const rowClass = isAltPortal ? 'unmapped' : (isMapped ? 'mapped' : '');
         const selectClass = isAltPortal ? 'not-available' : (isMapped ? 'mapped' : '');
         const availityPayers = AVAILITY_PAYERS[state] || [];
@@ -651,8 +621,7 @@
             '<td class="volume">' + plan.volume.toLocaleString() + '</td>' +
             '<td><select class="payer-select ' + selectClass + '" data-plan="' + escapeHtml(plan.planName) + '" data-state="' + escapeHtml(state) + '">' +
             '<option value="">-- Select Payer --</option>' +
-            '<option value="unmapped"' + (mapping?.availityPayerId === 'unmapped' ? ' selected' : '') + '>Unmapped</option>' +
-            '<option value="not available"' + (mapping?.availityPayerId === 'not available' ? ' selected' : '') + '>Not Available</option>' +
+            '<option value="not available"' + (mapping?.availityPayerId === 'not available' ? ' selected' : '') + '>Not In Availity</option>' +
             '<option value="Cigna"' + (mapping?.availityPayerId === 'Cigna' ? ' selected' : '') + '>Cigna Portal</option>' +
             '<option value="HPN"' + (mapping?.availityPayerId === 'HPN' ? ' selected' : '') + '>HPN Portal</option>' +
             '<option value="OptumCare"' + (mapping?.availityPayerId === 'OptumCare' ? ' selected' : '') + '>OptumCare Portal</option>' +
@@ -680,7 +649,7 @@
         row.classList.remove('mapped', 'unmapped');
         select.classList.remove('mapped', 'not-available');
 
-        if (payerId === 'not available' || payerId === 'UHC' || payerId === 'Superior') { row.classList.add('unmapped'); select.classList.add('not-available'); }
+        if (ALT_PORTAL_VALUES.includes(payerId)) { row.classList.add('unmapped'); select.classList.add('not-available'); }
         else if (payerId) { row.classList.add('mapped'); select.classList.add('mapped'); }
         updateStats();
         autoSaveToLocalStorage();
@@ -743,6 +712,7 @@
                 const mapping = currentMappings[mappingKey];
                 if (!mapping) return;
                 const payerId = mapping.availityPayerId;
+                if (ALT_PORTAL_VALUES.includes(payerId)) return;
                 const stateAbbrev = plan.stateAbbrev;
                 const key = stateAbbrev + '|' + payerId;
                 if (!outputByPayerState[key]) {
