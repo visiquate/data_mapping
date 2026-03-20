@@ -161,10 +161,10 @@
             <h2>Step 1: Upload Files</h2>
             <div class="upload-section">
                 <div class="upload-box" id="placementDropZone">
-                    <h3>Placement File *</h3>
-                    <p style="color: #d32f2f; font-weight: bold; margin-bottom: 4px;">⚠ You MUST strip out any PHI from your placement file.</p>
-                    <p style="margin-bottom: 4px;">Use the <a href="phi_stripper.html" target="_blank" style="color: #3498db; font-weight: 500;">PHI Stripper Tool</a> to prepare your file, or manually remove all columns except Payer 1 and State.</p>
-                    <p>Upload your placement file (.xlsx or .csv)</p>
+                    <h3>Placement Summary File *</h3>
+                    <p style="color: #d32f2f; font-weight: bold; margin-bottom: 4px;">⚠ Do NOT upload raw placement files containing PHI.</p>
+                    <p style="margin-bottom: 4px;">Use the <a href="phi_stripper.html" target="_blank" style="color: #3498db; font-weight: 500;">PHI Stripper Tool</a> to prepare your file first.</p>
+                    <p>Upload your placement summary file (.xlsx or .csv)</p>
                     <input type="file" id="placementFile" accept=".xlsx,.csv">
                     <button class="upload-btn" onclick="document.getElementById('placementFile').click()">Choose File</button>
                     <div class="file-name" id="placementFileName"></div>
@@ -221,7 +221,7 @@
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v4.6
+        Payer Mapping Tool v4.7
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -422,6 +422,15 @@
         try {
             const data = await readFile(file);
             placementData = parseSpreadsheet(data, file.name);
+            const phiCols = detectPHIColumns(placementData);
+            if (phiCols.length > 0) {
+                placementData = [];
+                document.getElementById('placementDropZone').classList.remove('has-file');
+                document.getElementById('placementFileName').textContent = '';
+                e.target.value = '';
+                showToast('File rejected — contains PHI columns: ' + phiCols.join(', ') + '. Please use the PHI Stripper tool first.', 'error');
+                return;
+            }
             processPlacementData();
             showToast('Placement file loaded: ' + placementData.length + ' rows', 'success');
         } catch (error) {
@@ -538,6 +547,27 @@
             rows.push(row);
         }
         return rows;
+    }
+
+    function detectPHIColumns(data) {
+        if (!data.length) return [];
+        const columns = Object.keys(data[0]).map(c => c.toLowerCase().replace(/[\s_-]/g, ''));
+        const phiPatterns = ['firstname', 'lastname', 'name', 'dob', 'dateofbirth', 'birthdate', 'ssn', 'socialsecurity',
+            'memberid', 'subscriberid', 'patientid', 'address', 'street', 'city', 'zip', 'zipcode', 'phone', 'email',
+            'diagnosis', 'dx', 'icd', 'cpt', 'procedure', 'claim', 'claimid', 'claimnumber', 'provider', 'npi',
+            'group', 'groupid', 'groupname', 'employer', 'policyno', 'policynumber', 'accountno', 'mrn',
+            'medicalrecord', 'patientname', 'membername', 'subscribername', 'insuredname', 'dependent'];
+        const allowedCols = ['state', 'payer1', 'payer', 'volume'];
+        const found = [];
+        Object.keys(data[0]).forEach(col => {
+            const normalized = col.toLowerCase().replace(/[\s_-]/g, '');
+            if (allowedCols.includes(normalized)) return;
+            if (phiPatterns.some(p => normalized.includes(p))) found.push(col);
+        });
+        // Also reject if too many columns (expected: 2-3 for a stripped file)
+        const colCount = Object.keys(data[0]).length;
+        if (colCount > 5 && found.length === 0) found.push('(' + colCount + ' columns detected — expected 2-3 for a summary file)');
+        return found;
     }
 
     function processPlacementData() {
