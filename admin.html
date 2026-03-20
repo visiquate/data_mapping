@@ -381,7 +381,8 @@
             ws['!cols'] = [{ wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 40 }];
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Mappings');
-            XLSX.writeFile(wb, 'payer_mapping_' + name + '.xlsx');
+            const timestamp = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(wb, name + '_mapping_v5.11_' + timestamp + '.xlsx');
             showToast('Exported Excel for ' + name, 'success');
         } catch (e) {
             showToast('Error: ' + e.message, 'error');
@@ -416,7 +417,8 @@
             const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = name + '_uipath.json'; a.click();
+            const timestamp = new Date().toISOString().split('T')[0];
+            a.href = url; a.download = name + '_uipath_v5.11_' + timestamp + '.json'; a.click();
             URL.revokeObjectURL(url);
             showToast('Exported UiPath JSON for ' + name, 'success');
         } catch (e) {
@@ -473,7 +475,7 @@
     </script>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool — Admin Dashboard v5.10
+        Payer Mapping Tool — Admin Dashboard v5.11
     </footer>
 </body>
 </html>

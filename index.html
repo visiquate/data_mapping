@@ -356,7 +356,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.10
+        Payer Mapping Tool v5.11
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -1060,7 +1060,7 @@
         const meta = XLSX.utils.aoa_to_sheet([['Client Name', 'Last Updated'], [name, new Date().toISOString().split('T')[0]]]);
         XLSX.utils.book_append_sheet(wb, meta, 'Info');
         const timestamp = new Date().toISOString().split('T')[0];
-        XLSX.writeFile(wb, name + '_mapping_' + timestamp + '.xlsx');
+        XLSX.writeFile(wb, name + '_mapping_v5.11_' + timestamp + '.xlsx');
         showToast('Mapping progress saved to Excel file', 'success');
     }
 
@@ -1088,7 +1088,7 @@
         });
         const name = clientName || 'Client';
         const timestamp = new Date().toISOString().split('T')[0];
-        downloadJson(output, name + '_uipath_' + timestamp + '.json');
+        downloadJson(output, name + '_uipath_v5.11_' + timestamp + '.json');
         showToast('UiPath JSON exported', 'success');
     }
 
