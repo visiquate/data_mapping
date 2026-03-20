@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Placement File PHI Stripper</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5; color: #333; line-height: 1.6; padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; }
+        .card {
+            background: white; border-radius: 8px; padding: 20px;
+            margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            color: #2c3e50; margin-bottom: 15px; font-size: 1.2em;
+            border-bottom: 2px solid #3498db; padding-bottom: 10px;
+        }
+        .privacy-banner {
+            background: #e8f5e9; border: 2px solid #27ae60; border-radius: 8px;
+            padding: 15px 20px; margin-bottom: 20px; text-align: center;
+        }
+        .privacy-banner strong { color: #27ae60; font-size: 1.1em; }
+        .privacy-banner p { color: #555; font-size: 0.9em; margin-top: 5px; }
+        .upload-box {
+            border: 2px dashed #ccc; border-radius: 8px; padding: 30px;
+            text-align: center; transition: border-color 0.3s, background 0.3s;
+            cursor: pointer;
+        }
+        .upload-box:hover { border-color: #3498db; background: #f8f9fa; }
+        .upload-box.dragover { border-color: #27ae60; background: #e8f5e9; }
+        .upload-box.has-file { border-color: #27ae60; border-style: solid; }
+        .upload-box p { color: #888; font-size: 0.9em; margin-bottom: 10px; }
+        .upload-box input[type="file"] { display: none; }
+        .upload-btn {
+            background: #3498db; color: white; padding: 10px 20px; border: none;
+            border-radius: 5px; cursor: pointer; font-size: 0.9em; transition: background 0.3s;
+        }
+        .upload-btn:hover { background: #2980b9; }
+        .file-name { margin-top: 10px; color: #27ae60; font-weight: 500; word-break: break-all; }
+        .results {
+            background: #f8f9fa; border-radius: 8px; padding: 15px; margin-top: 15px;
+        }
+        .results p { margin-bottom: 5px; font-size: 0.95em; }
+        .results .label { color: #666; }
+        .results .value { font-weight: 600; color: #2c3e50; }
+        .btn {
+            padding: 12px 24px; border: none; border-radius: 5px;
+            cursor: pointer; font-size: 1em; font-weight: 500; transition: all 0.3s;
+            background: #27ae60; color: white; margin-top: 15px;
+        }
+        .btn:hover { background: #219a52; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        .hidden { display: none; }
+        .warning {
+            background: #fff3e0; border: 1px solid #ffb74d; border-radius: 5px;
+            padding: 10px 15px; margin-top: 10px; font-size: 0.85em; color: #e65100;
+        }
+        .preview-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85em; }
+        .preview-table th { background: #f1f1f1; padding: 8px; text-align: left; font-weight: 600; color: #555; }
+        .preview-table td { padding: 8px; border-bottom: 1px solid #eee; }
+        .footer { text-align: center; padding: 20px; color: #999; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Placement File PHI Stripper</h1>
+        <p class="subtitle">Prepare your placement file for the Payer Mapping Tool by removing all PHI</p>
+
+        <div class="privacy-banner">
+            <strong>100% Local Processing — No Data Leaves Your Computer</strong>
+            <p>This tool runs entirely in your browser. Your placement file is never uploaded or transmitted anywhere.</p>
+        </div>
+
+        <div class="card">
+            <h2>Upload Placement File</h2>
+            <div class="upload-box" id="dropZone">
+                <p>Upload your standard placement file (.xlsx or .csv)</p>
+                <p>Only the <strong>State</strong> and <strong>Payer 1</strong> columns will be kept. All other data is discarded.</p>
+                <input type="file" id="fileInput" accept=".xlsx,.csv">
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">Choose File</button>
+                <div class="file-name hidden" id="fileName"></div>
+            </div>
+
+            <div class="hidden" id="resultsSection">
+                <div class="results">
+                    <p><span class="label">Original rows: </span><span class="value" id="originalRows"></span></p>
+                    <p><span class="label">Original columns: </span><span class="value" id="originalCols"></span></p>
+                    <p><span class="label">Columns removed: </span><span class="value" id="removedCols"></span></p>
+                    <p><span class="label">Unique plans (output rows): </span><span class="value" id="outputRows"></span></p>
+                    <p><span class="label">States found: </span><span class="value" id="statesFound"></span></p>
+                </div>
+
+                <div class="warning" id="warningSection" style="display:none;"></div>
+
+                <h3 style="margin-top: 15px; font-size: 1em; color: #555;">Preview (first 10 rows)</h3>
+                <table class="preview-table" id="previewTable">
+                    <thead><tr><th>State</th><th>Payer1</th><th>Volume</th></tr></thead>
+                    <tbody id="previewBody"></tbody>
+                </table>
+
+                <button class="btn" id="downloadBtn" onclick="downloadCleanFile()">Download Clean File (.xlsx)</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>How It Works</h2>
+            <ol style="padding-left: 20px; color: #555; font-size: 0.9em; line-height: 2;">
+                <li>Upload your standard placement file</li>
+                <li>The tool finds the <strong>State</strong> and <strong>Payer 1</strong> columns and discards everything else</li>
+                <li>Rows are aggregated into unique (State, Plan) combinations with a volume count</li>
+                <li>Download the clean file and upload it to the <a href="index.html">Payer Mapping Tool</a></li>
+            </ol>
+        </div>
+
+        <div class="footer">Placement File PHI Stripper v1.0</div>
+    </div>
+
+    <div id="toast" style="position:fixed;bottom:20px;right:20px;background:#e74c3c;color:white;padding:15px 25px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);transform:translateY(100px);opacity:0;transition:all 0.3s;z-index:1000;"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+    let cleanedData = [];
+    let clientFileName = '';
+
+    const STATE_MAP = {
+        'AL': 'Alabama', 'AK': 'Alaska', 'AS': 'American Samoa', 'AZ': 'Arizona',
+        'AR': 'Arkansas', 'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut',
+        'DE': 'Delaware', 'DC': 'District of Columbia', 'FL': 'Florida', 'GA': 'Georgia',
+        'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana',
+        'IA': 'Iowa', 'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana',
+        'ME': 'Maine', 'MD': 'Maryland', 'MA': 'Massachusetts', 'MI': 'Michigan',
+        'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri', 'MT': 'Montana',
+        'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+        'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota',
+        'OH': 'Ohio', 'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania',
+        'RI': 'Rhode Island', 'SC': 'South Carolina', 'SD': 'South Dakota', 'TN': 'Tennessee',
+        'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont', 'VA': 'Virginia',
+        'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
+    };
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg; t.style.transform = 'translateY(0)'; t.style.opacity = '1';
+        setTimeout(() => { t.style.transform = 'translateY(100px)'; t.style.opacity = '0'; }, 3000);
+    }
+
+    // Drag and drop
+    const dropZone = document.getElementById('dropZone');
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault(); dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+    });
+    dropZone.addEventListener('click', e => {
+        if (e.target.tagName !== 'BUTTON') document.getElementById('fileInput').click();
+    });
+
+    document.getElementById('fileInput').addEventListener('change', e => {
+        if (e.target.files.length) processFile(e.target.files[0]);
+    });
+
+    function processFile(file) {
+        clientFileName = file.name.replace(/\.[^.]+$/, '');
+        const nameEl = document.getElementById('fileName');
+        nameEl.textContent = file.name; nameEl.classList.remove('hidden');
+        dropZone.classList.add('has-file');
+
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                let rows;
+                if (file.name.toLowerCase().endsWith('.csv')) {
+                    const text = new TextDecoder().decode(new Uint8Array(e.target.result));
+                    const wb = XLSX.read(text, { type: 'string' });
+                    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                } else {
+                    const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                }
+                processData(rows, file.name);
+            } catch (err) {
+                showToast('Error reading file: ' + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    function processData(rows, filename) {
+        if (!rows.length) { showToast('File is empty'); return; }
+
+        const columns = Object.keys(rows[0]);
+        const stateCol = columns.find(c => c.toLowerCase() === 'state');
+        const payerCol = columns.find(c => c.toLowerCase() === 'payer1' || c.toLowerCase() === 'payer');
+
+        if (!stateCol || !payerCol) {
+            showToast('Could not find State or Payer1 columns. Found: ' + columns.join(', '));
+            return;
+        }
+
+        // Aggregate
+        const counts = {};
+        let skipped = 0;
+        rows.forEach(row => {
+            let state = row[stateCol];
+            const payer = row[payerCol];
+            if (!state || !payer) { skipped++; return; }
+            state = String(state).trim().toUpperCase();
+            const fullState = STATE_MAP[state] || state;
+            const key = fullState + '|' + payer;
+            if (!counts[key]) counts[key] = { State: fullState, Payer1: String(payer).trim(), Volume: 0 };
+            counts[key].Volume++;
+        });
+
+        cleanedData = Object.values(counts).sort((a, b) => {
+            if (a.State !== b.State) return a.State.localeCompare(b.State);
+            return b.Volume - a.Volume;
+        });
+
+        const removedCols = columns.filter(c => c !== stateCol && c !== payerCol);
+        const states = [...new Set(cleanedData.map(r => r.State))];
+
+        document.getElementById('originalRows').textContent = rows.length.toLocaleString();
+        document.getElementById('originalCols').textContent = columns.length;
+        document.getElementById('removedCols').textContent = removedCols.length + ' (' + removedCols.slice(0, 5).join(', ') + (removedCols.length > 5 ? '...' : '') + ')';
+        document.getElementById('outputRows').textContent = cleanedData.length.toLocaleString();
+        document.getElementById('statesFound').textContent = states.length;
+
+        const warn = document.getElementById('warningSection');
+        if (skipped > 0) {
+            warn.textContent = skipped + ' rows skipped (missing State or Payer1 value).';
+            warn.style.display = 'block';
+        } else {
+            warn.style.display = 'none';
+        }
+
+        // Preview
+        const tbody = document.getElementById('previewBody');
+        tbody.innerHTML = '';
+        cleanedData.slice(0, 10).forEach(row => {
+            tbody.innerHTML += '<tr><td>' + row.State + '</td><td>' + row.Payer1 + '</td><td>' + row.Volume.toLocaleString() + '</td></tr>';
+        });
+        if (cleanedData.length > 10) {
+            tbody.innerHTML += '<tr><td colspan="3" style="color:#888;text-align:center;">... and ' + (cleanedData.length - 10) + ' more rows</td></tr>';
+        }
+
+        document.getElementById('resultsSection').classList.remove('hidden');
+    }
+
+    function downloadCleanFile() {
+        if (!cleanedData.length) return;
+        const ws = XLSX.utils.json_to_sheet(cleanedData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Plans');
+        ws['!cols'] = [{ wch: 20 }, { wch: 40 }, { wch: 10 }];
+        XLSX.writeFile(wb, clientFileName + '_clean.xlsx');
+    }
+    </script>
+</body>
+</html>

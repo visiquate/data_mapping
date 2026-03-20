@@ -162,7 +162,8 @@
             <div class="upload-section">
                 <div class="upload-box" id="placementDropZone">
                     <h3>Placement File *</h3>
-                    <p style="color: #d32f2f; font-weight: bold; margin-bottom: 4px;">⚠ You MUST strip out any PHI from your placement file. The only data required is the Payer 1 and State columns.</p>
+                    <p style="color: #d32f2f; font-weight: bold; margin-bottom: 4px;">⚠ You MUST strip out any PHI from your placement file.</p>
+                    <p style="margin-bottom: 4px;">Use the <a href="phi_stripper.html" target="_blank" style="color: #3498db; font-weight: 500;">PHI Stripper Tool</a> to prepare your file, or manually remove all columns except Payer 1 and State.</p>
                     <p>Upload your placement file (.xlsx or .csv)</p>
                     <input type="file" id="placementFile" accept=".xlsx,.csv">
                     <button class="upload-btn" onclick="document.getElementById('placementFile').click()">Choose File</button>
@@ -220,7 +221,7 @@
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v4.5
+        Payer Mapping Tool v4.6
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -545,7 +546,8 @@
         const columns = Object.keys(sampleRow);
         let stateCol = columns.find(c => c.toLowerCase() === 'state');
         let payerCol = columns.find(c => c.toLowerCase() === 'payer1' || c.toLowerCase() === 'payer');
-        
+        let volumeCol = columns.find(c => c.toLowerCase() === 'volume');
+
         if (!stateCol || !payerCol) {
             showToast('Could not find State or Payer1 columns', 'error');
             console.log('Available columns:', columns);
@@ -561,8 +563,9 @@
             const fullState = STATE_MAP[state] || state;
             const stateAbbrev = STATE_ABBREV[fullState] || state;
             const key = fullState + '|' + payer;
+            const vol = volumeCol ? (parseInt(row[volumeCol]) || 1) : 1;
             if (!planCounts[key]) planCounts[key] = { state: fullState, stateAbbrev, payer, count: 0 };
-            planCounts[key].count++;
+            planCounts[key].count += vol;
         });
 
         Object.values(planCounts).forEach(item => {
