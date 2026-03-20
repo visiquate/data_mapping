@@ -356,7 +356,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.7
+        Payer Mapping Tool v5.8
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -1008,13 +1008,7 @@
     }
 
     function applyMappingsToInterface() {
-        document.querySelectorAll('.payer-select').forEach(select => {
-            const planName = select.dataset.plan;
-            const state = select.dataset.state;
-            const mappingKey = state + '|' + planName;
-            const mapping = currentMappings[mappingKey];
-            if (mapping) { select.value = mapping.availityPayerId; select.dispatchEvent(new Event('change')); }
-        });
+        // Re-render with current mappings already applied (renderPlanRow reads currentMappings)
         renderMappingInterface();
         updateStats();
     }
