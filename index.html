@@ -161,12 +161,17 @@
 
         <div class="card">
             <h2>Client Setup</h2>
-            <div class="client-section">
-                <input type="text" class="client-input" id="clientName" placeholder="Enter your organization name (e.g., UTSW)">
+            <div class="client-section" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" class="client-input" id="clientName" placeholder="Client name (e.g., UTSW)" style="flex: 1; min-width: 180px;">
+                <input type="password" class="client-input" id="clientPassphrase" placeholder="Passphrase" style="flex: 0.7; min-width: 140px;">
+                <button class="btn" id="connectBtn" style="background: #3498db; color: white; white-space: nowrap;">Connect</button>
+                <span id="connectionStatus" style="font-size: 0.85em; white-space: nowrap;"></span>
+            </div>
+            <div class="client-section" style="margin-top: 8px;">
                 <span class="client-status hidden" id="clientStatus"></span>
                 <button class="btn btn-clear hidden" id="clearDataBtn">Clear Saved Data</button>
             </div>
-            <p style="color: #666; font-size: 0.85em;">Your mappings are automatically saved in this browser. Enter the same name each week to load your previous work.</p>
+            <p style="color: #666; font-size: 0.85em;">Enter your client name and passphrase to connect to cloud storage. Mappings sync automatically across all browsers.</p>
         </div>
 
         <div class="card">
@@ -233,14 +238,92 @@
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v4.10
+        Payer Mapping Tool v5.0
     </footer>
 
     <div class="toast" id="toast"></div>
     <div class="auto-save-indicator" id="autoSaveIndicator">Mappings saved</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
     <script>
+    // Firebase setup
+    firebase.initializeApp({
+        apiKey: "AIzaSyAYg8MItMR6l5Yw3Gt_gPIzZyBE6H0HlAM",
+        authDomain: "payer-mapping-tool.firebaseapp.com",
+        projectId: "payer-mapping-tool",
+        storageBucket: "payer-mapping-tool.firebasestorage.app",
+        messagingSenderId: "320017874286",
+        appId: "1:320017874286:web:7ce224cba48524cca3957f"
+    });
+    const db = firebase.firestore();
+    let firebaseConnected = false;
+    let clientAuthenticated = false;
+    let firebaseSaveTimer;
+
+    async function hashPassphrase(text) {
+        const encoded = new TextEncoder().encode(text);
+        const hash = await crypto.subtle.digest('SHA-256', encoded);
+        return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function authenticateClient(name, passphrase) {
+        try {
+            const doc = await db.collection('clients').doc(name).get();
+            if (!doc.exists) return { status: 'not_found' };
+            const hash = await hashPassphrase(passphrase);
+            if (doc.data().passphraseHash === hash) {
+                firebaseConnected = true;
+                clientAuthenticated = true;
+                return { status: 'ok', data: doc.data() };
+            }
+            return { status: 'wrong_passphrase' };
+        } catch (e) {
+            console.error('Firebase auth error:', e);
+            return { status: 'offline' };
+        }
+    }
+
+    async function saveToFirestore(name, mappings) {
+        if (!firebaseConnected || !clientAuthenticated) return;
+        try {
+            await db.collection('clients').doc(name).set({
+                clientName: name,
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                mappings: mappings
+            }, { merge: true });
+        } catch (e) {
+            console.error('Firebase save error:', e);
+            updateConnectionStatus('offline');
+        }
+    }
+
+    async function loadFromFirestore(name) {
+        try {
+            const doc = await db.collection('clients').doc(name).get();
+            if (doc.exists) return doc.data();
+            return null;
+        } catch (e) {
+            console.error('Firebase load error:', e);
+            return null;
+        }
+    }
+
+    function updateConnectionStatus(status) {
+        const el = document.getElementById('connectionStatus');
+        if (status === 'connected') {
+            el.innerHTML = '☁️ Connected';
+            el.style.color = '#27ae60';
+        } else if (status === 'offline') {
+            el.innerHTML = '💾 Local only';
+            el.style.color = '#e67e22';
+            firebaseConnected = false;
+        } else if (status === 'none') {
+            el.innerHTML = '';
+        }
+    }
+
     // Availity Payer Data - loaded from external Excel file (availity_payers.xlsx)
     async function loadAvailityPayers() {
         try {
@@ -303,38 +386,83 @@
 
     function setupClientHandler() {
         const clientInput = document.getElementById('clientName');
+        const passphraseInput = document.getElementById('clientPassphrase');
+        const connectBtn = document.getElementById('connectBtn');
         const clientStatus = document.getElementById('clientStatus');
         const clearBtn = document.getElementById('clearDataBtn');
 
         // Load client name from sessionStorage (for current session continuity)
         const savedClientName = sessionStorage.getItem('currentClient');
-        if (savedClientName) {
+        const savedPassphrase = sessionStorage.getItem('currentPassphrase');
+        if (savedClientName && savedPassphrase) {
             clientInput.value = savedClientName;
-            clientName = savedClientName;
-            loadClientData(savedClientName);
+            passphraseInput.value = savedPassphrase;
+            handleConnect();
         }
 
-        // Debounce client name input
-        let debounceTimer;
-        clientInput.addEventListener('input', (e) => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                const name = e.target.value.trim();
-                if (name.length >= 2) {
-                    clientName = name;
-                    sessionStorage.setItem('currentClient', name);
-                    loadClientData(name);
-                } else {
-                    clientStatus.classList.add('hidden');
-                    clearBtn.classList.add('hidden');
-                }
-            }, 500);
-        });
+        connectBtn.addEventListener('click', handleConnect);
+        passphraseInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleConnect(); });
+
+        async function handleConnect() {
+            const name = clientInput.value.trim();
+            const passphrase = passphraseInput.value.trim();
+
+            if (name.length < 2) { showToast('Please enter a client name (at least 2 characters)', 'error'); return; }
+            if (!passphrase) { showToast('Please enter a passphrase', 'error'); return; }
+
+            clientName = name;
+            sessionStorage.setItem('currentClient', name);
+            sessionStorage.setItem('currentPassphrase', passphrase);
+            connectBtn.textContent = 'Connecting...';
+            connectBtn.disabled = true;
+
+            const result = await authenticateClient(name, passphrase);
+
+            connectBtn.textContent = 'Connect';
+            connectBtn.disabled = false;
+
+            if (result.status === 'ok') {
+                // Load from Firestore
+                currentMappings = result.data.mappings || {};
+                const mappingCount = Object.keys(currentMappings).length;
+                clientStatus.textContent = 'Loaded ' + mappingCount + ' mappings from cloud';
+                clientStatus.className = 'client-status loaded';
+                clearBtn.classList.remove('hidden');
+                updateConnectionStatus('connected');
+                // Also save to localStorage as backup
+                localStorage.setItem('payerMapping_' + name, JSON.stringify({ clientName: name, lastUpdated: new Date().toISOString(), mappings: currentMappings }));
+                renderMappingInterface();
+                updateStats();
+                showToast('Connected to ' + name + ' — loaded ' + mappingCount + ' mappings', 'success');
+            } else if (result.status === 'not_found') {
+                // Client doesn't exist in Firebase — fall back to localStorage
+                clientAuthenticated = false;
+                firebaseConnected = false;
+                updateConnectionStatus('offline');
+                loadClientDataLocal(name);
+                showToast('Client not found in cloud. Contact admin to create it. Using local storage.', 'error');
+            } else if (result.status === 'wrong_passphrase') {
+                clientAuthenticated = false;
+                firebaseConnected = false;
+                updateConnectionStatus('none');
+                showToast('Incorrect passphrase for ' + name, 'error');
+            } else {
+                // Offline — fall back to localStorage
+                clientAuthenticated = false;
+                firebaseConnected = false;
+                updateConnectionStatus('offline');
+                loadClientDataLocal(name);
+                showToast('Cannot reach cloud. Working offline with local data.', 'error');
+            }
+
+            clientStatus.classList.remove('hidden');
+        }
 
         clearBtn.addEventListener('click', () => {
             if (confirm('Are you sure you want to clear all saved mappings for "' + clientName + '"? This cannot be undone.')) {
                 localStorage.removeItem('payerMapping_' + clientName);
                 currentMappings = {};
+                if (firebaseConnected) saveToFirestore(clientName, {});
                 renderMappingInterface();
                 updateStats();
                 clientStatus.textContent = 'Data cleared - starting fresh';
@@ -344,35 +472,32 @@
         });
     }
 
-    function loadClientData(name) {
+    function loadClientDataLocal(name) {
         const clientStatus = document.getElementById('clientStatus');
         const clearBtn = document.getElementById('clearDataBtn');
         const savedData = localStorage.getItem('payerMapping_' + name);
-
         if (savedData) {
             try {
                 const data = JSON.parse(savedData);
                 currentMappings = data.mappings || {};
                 const mappingCount = Object.keys(currentMappings).length;
-                clientStatus.textContent = 'Loaded ' + mappingCount + ' saved mappings';
+                clientStatus.textContent = 'Loaded ' + mappingCount + ' mappings (local)';
                 clientStatus.className = 'client-status loaded';
                 clearBtn.classList.remove('hidden');
                 renderMappingInterface();
                 updateStats();
-                showToast('Welcome back! Loaded ' + mappingCount + ' previous mappings', 'success');
             } catch (e) {
                 clientStatus.textContent = 'New client - no saved data';
                 clientStatus.className = 'client-status new';
             }
         } else {
-            clientStatus.textContent = 'New client - no saved data yet';
+            clientStatus.textContent = 'New client - no saved data';
             clientStatus.className = 'client-status new';
             clearBtn.classList.add('hidden');
         }
-        clientStatus.classList.remove('hidden');
     }
 
-    function autoSaveToLocalStorage() {
+    function autoSave() {
         if (!clientName) return;
         const data = {
             clientName: clientName,
@@ -381,8 +506,15 @@
         };
         localStorage.setItem('payerMapping_' + clientName, JSON.stringify(data));
 
+        // Debounced Firestore save (2s)
+        if (firebaseConnected && clientAuthenticated) {
+            clearTimeout(firebaseSaveTimer);
+            firebaseSaveTimer = setTimeout(() => saveToFirestore(clientName, currentMappings), 2000);
+        }
+
         // Show auto-save indicator
         const indicator = document.getElementById('autoSaveIndicator');
+        indicator.textContent = firebaseConnected ? 'Saved to cloud' : 'Saved locally';
         indicator.classList.add('show');
         setTimeout(() => indicator.classList.remove('show'), 1500);
     }
@@ -700,7 +832,7 @@
         if (ALT_PORTAL_VALUES.includes(payerId)) { row.classList.add('unmapped'); select.classList.add('not-available'); }
         else if (payerId) { row.classList.add('mapped'); select.classList.add('mapped'); }
         updateStats();
-        autoSaveToLocalStorage();
+        autoSave();
     }
 
     function applyMappingsToInterface() {
