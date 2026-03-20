@@ -351,7 +351,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.4
+        Payer Mapping Tool v5.5
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -396,8 +396,21 @@
 
     async function authenticateClient(name, passphrase) {
         try {
-            const doc = await db.collection('clients').doc(name).get();
-            if (!doc.exists) return { status: 'not_found' };
+            // First try exact match
+            let doc = await db.collection('clients').doc(name).get();
+            // If not found, search all clients case-insensitively
+            if (!doc.exists) {
+                const snapshot = await db.collection('clients').get();
+                const nameUpper = name.toUpperCase();
+                snapshot.forEach(d => {
+                    if (d.id.toUpperCase() === nameUpper) doc = d;
+                });
+                if (!doc.exists) return { status: 'not_found' };
+                // Update the clientName to match the Firestore doc ID
+                clientName = doc.id;
+                document.getElementById('clientName').value = doc.id;
+                sessionStorage.setItem('currentClient', doc.id);
+            }
             const hash = await hashPassphrase(passphrase);
             if (doc.data().passphraseHash === hash) {
                 firebaseConnected = true;
