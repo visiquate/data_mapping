@@ -233,7 +233,7 @@
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v4.9
+        Payer Mapping Tool v4.10
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -601,8 +601,10 @@
             let state = row[stateCol];
             const payer = String(row[payerCol] || '').trim();
             if (!state || !payer) return;
-            state = String(state).trim().toUpperCase();
-            const fullState = STATE_MAP[state] || state;
+            state = String(state).trim();
+            const stateUpper = state.toUpperCase();
+            // Handle both abbreviations ("IN") and full names ("Indiana")
+            const fullState = STATE_MAP[stateUpper] || STATE_MAP[state] || Object.keys(STATE_MAP).reduce((found, abbr) => found || (STATE_MAP[abbr].toUpperCase() === stateUpper ? STATE_MAP[abbr] : null), null) || state;
             const stateAbbrev = STATE_ABBREV[fullState] || state;
             const key = fullState + '|' + payer;
             const vol = volumeCol ? (parseInt(row[volumeCol]) || 1) : 1;
