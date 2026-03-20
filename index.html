@@ -233,7 +233,7 @@
     </div>
 
     <footer style="text-align: center; color: #999; font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v4.8
+        Payer Mapping Tool v4.9
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -502,7 +502,7 @@
             // Each queue entry is "PlanName, StateAbbrev"
             (entry.Queues || []).forEach(queue => {
                 // Remove the state suffix (e.g., ", TX") to get just the plan name
-                const planName = queue.replace(/, [A-Z]{2}$/, '');
+                const planName = queue.replace(/, [A-Z]{2}$/, '').trim();
                 const mappingKey = fullState + '|' + planName;
                 mappings[mappingKey] = {
                     availityPayerId: payerId,
@@ -599,7 +599,7 @@
         const planCounts = {};
         placementData.forEach(row => {
             let state = row[stateCol];
-            const payer = row[payerCol];
+            const payer = String(row[payerCol] || '').trim();
             if (!state || !payer) return;
             state = String(state).trim().toUpperCase();
             const fullState = STATE_MAP[state] || state;
