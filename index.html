@@ -274,7 +274,8 @@
         <div class="card">
             <h2>Client Setup</h2>
             <div class="client-section" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                <input type="text" class="client-input" id="clientName" placeholder="Client name (e.g., UTSW)" style="flex: 1; min-width: 180px;">
+                <input type="text" class="client-input" id="clientName" list="clientList" placeholder="Client name (e.g., UTSW)" style="flex: 1; min-width: 180px;" autocomplete="off">
+                <datalist id="clientList"></datalist>
                 <input type="password" class="client-input" id="clientPassphrase" placeholder="Passphrase" style="flex: 0.7; min-width: 140px;">
                 <button class="btn" id="connectBtn" style="background: var(--color-accent); color: white; white-space: nowrap;">Connect</button>
                 <span id="connectionStatus" style="font-size: 0.85em; white-space: nowrap;"></span>
@@ -350,7 +351,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.2
+        Payer Mapping Tool v5.3
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -378,6 +379,19 @@
         const encoded = new TextEncoder().encode(text);
         const hash = await crypto.subtle.digest('SHA-256', encoded);
         return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function loadClientList() {
+        try {
+            const snapshot = await db.collection('clients').get();
+            const datalist = document.getElementById('clientList');
+            datalist.innerHTML = '';
+            snapshot.forEach(doc => {
+                const option = document.createElement('option');
+                option.value = doc.id;
+                datalist.appendChild(option);
+            });
+        } catch (e) { console.log('Could not load client list:', e); }
     }
 
     async function authenticateClient(name, passphrase) {
@@ -490,6 +504,7 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
         AVAILITY_PAYERS = await loadAvailityPayers();
+        loadClientList();
         setupClientHandler();
         setupFileHandlers();
         setupFilterButtons();
@@ -516,7 +531,8 @@
         passphraseInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleConnect(); });
 
         async function handleConnect() {
-            const name = clientInput.value.trim();
+            const name = clientInput.value.trim().toUpperCase();
+            clientInput.value = name;
             const passphrase = passphraseInput.value.trim();
 
             if (name.length < 2) { showToast('Please enter a client name (at least 2 characters)', 'error'); return; }
