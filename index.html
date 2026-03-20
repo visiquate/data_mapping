@@ -313,11 +313,15 @@
             <h2>Mapping Progress</h2>
             <div class="stats">
                 <div class="stat-box"><div class="number" id="totalPlans">0</div><div class="label">Total Plans</div></div>
-                <div class="stat-box"><div class="number" id="mappedPlans">0</div><div class="label">Mapped</div></div>
+                <div class="stat-box"><div class="number" id="mappedPlans" style="color: #27ae60;">0</div><div class="label">Mapped</div></div>
+                <div class="stat-box"><div class="number" id="altPortalPlans" style="color: var(--color-accent);">0</div><div class="label">Not In Availity</div></div>
                 <div class="stat-box"><div class="number" id="unmappedPlans">0</div><div class="label">Unmapped</div></div>
                 <div class="stat-box"><div class="number" id="totalStates">0</div><div class="label">States</div></div>
             </div>
-            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width: 0%"></div></div>
+            <div class="progress-bar" style="position: relative;">
+                <div class="progress-fill" id="progressFill" style="width: 0%; position: absolute; left: 0; top: 0;"></div>
+                <div id="altProgressFill" style="width: 0%; height: 100%; background: var(--color-accent); opacity: 0.7; position: absolute; left: 0; top: 0; transition: all 0.3s;"></div>
+            </div>
             <div class="progress-text" id="progressText">0% Complete</div>
         </div>
 
@@ -326,8 +330,9 @@
             <input type="text" class="search-box" id="searchBox" placeholder="Search plans...">
             <div class="filter-buttons">
                 <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="unmapped">Unmapped Only</button>
-                <button class="filter-btn" data-filter="mapped">Mapped Only</button>
+                <button class="filter-btn" data-filter="mapped">Mapped</button>
+                <button class="filter-btn" data-filter="altportal">Not In Availity</button>
+                <button class="filter-btn" data-filter="unmapped">Unmapped</button>
             </div>
             <div id="mappingContent"></div>
         </div>
@@ -351,7 +356,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.6
+        Payer Mapping Tool v5.7
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -934,7 +939,8 @@
         sortedStates.forEach(state => {
             let plans = plansByState[state];
             if (searchTerm) plans = plans.filter(p => p.planName.toLowerCase().includes(searchTerm));
-            if (currentFilter === 'mapped') plans = plans.filter(p => currentMappings[state + '|' + p.planName]?.availityPayerId);
+            if (currentFilter === 'mapped') plans = plans.filter(p => { const pid = currentMappings[state + '|' + p.planName]?.availityPayerId; return pid && !ALT_PORTAL_VALUES.includes(pid); });
+            else if (currentFilter === 'altportal') plans = plans.filter(p => ALT_PORTAL_VALUES.includes(currentMappings[state + '|' + p.planName]?.availityPayerId));
             else if (currentFilter === 'unmapped') plans = plans.filter(p => !currentMappings[state + '|' + p.planName]?.availityPayerId);
             if (plans.length === 0) return;
 
@@ -1016,20 +1022,30 @@
     function updateStats() {
         let total = 0;
         let mapped = 0;
+        let altPortal = 0;
         Object.entries(plansByState).forEach(([state, plans]) => {
             plans.forEach(plan => {
                 total++;
                 const mappingKey = state + '|' + plan.planName;
-                if (currentMappings[mappingKey]?.availityPayerId) mapped++;
+                const pid = currentMappings[mappingKey]?.availityPayerId;
+                if (pid) {
+                    if (ALT_PORTAL_VALUES.includes(pid)) altPortal++;
+                    else mapped++;
+                }
             });
         });
+        const unmapped = total - mapped - altPortal;
         document.getElementById('totalPlans').textContent = total;
         document.getElementById('mappedPlans').textContent = mapped;
-        document.getElementById('unmappedPlans').textContent = total - mapped;
+        document.getElementById('altPortalPlans').textContent = altPortal;
+        document.getElementById('unmappedPlans').textContent = unmapped;
         document.getElementById('totalStates').textContent = Object.keys(plansByState).length;
-        const pct = total > 0 ? Math.round((mapped / total) * 100) : 0;
-        document.getElementById('progressFill').style.width = pct + '%';
-        document.getElementById('progressText').textContent = pct + '% Complete';
+        const mappedPct = total > 0 ? Math.round((mapped / total) * 100) : 0;
+        const altPct = total > 0 ? Math.round((altPortal / total) * 100) : 0;
+        document.getElementById('progressFill').style.width = (mappedPct + altPct) + '%';
+        document.getElementById('altProgressFill').style.width = altPct + '%';
+        document.getElementById('altProgressFill').style.left = mappedPct + '%';
+        document.getElementById('progressText').textContent = mappedPct + '% Mapped to Availity · ' + altPct + '% Not In Availity · ' + (100 - mappedPct - altPct) + '% Unmapped';
     }
 
     function saveMappingProgress() {
