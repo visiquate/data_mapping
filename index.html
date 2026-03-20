@@ -356,7 +356,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.12
+        Payer Mapping Tool v5.13
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -553,6 +553,7 @@
             if (!passphrase) { showToast('Please enter a passphrase', 'error'); return; }
 
             const previousClient = clientName;
+            clearTimeout(firebaseSaveTimer);
             connectBtn.textContent = 'Connecting...';
             connectBtn.disabled = true;
 
@@ -604,15 +605,16 @@
         }
 
         clearBtn.addEventListener('click', () => {
-            if (confirm('Are you sure you want to clear all saved mappings for "' + clientName + '"? This cannot be undone.')) {
+            if (confirm('WARNING: This will permanently delete ALL saved mappings for "' + clientName + '" from both local storage and the cloud database. This cannot be undone.\n\nAre you absolutely sure?')) {
                 localStorage.removeItem('payerMapping_' + clientName);
                 currentMappings = {};
                 if (firebaseConnected) saveToFirestore(clientName, {});
+                plansByState = {};
                 renderMappingInterface();
                 updateStats();
                 clientStatus.textContent = 'Data cleared - starting fresh';
                 clientStatus.className = 'client-status new';
-                showToast('Saved data cleared for ' + clientName, 'success');
+                showToast('All data permanently cleared for ' + clientName, 'success');
             }
         });
     }
@@ -654,7 +656,9 @@
         // Debounced Firestore save (2s)
         if (firebaseConnected && clientAuthenticated) {
             clearTimeout(firebaseSaveTimer);
-            firebaseSaveTimer = setTimeout(() => saveToFirestore(clientName, currentMappings), 2000);
+            const saveClient = clientName;
+            const saveMappings = JSON.parse(JSON.stringify(currentMappings));
+            firebaseSaveTimer = setTimeout(() => saveToFirestore(saveClient, saveMappings), 2000);
         }
 
         // Show auto-save indicator
