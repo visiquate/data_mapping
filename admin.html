@@ -302,19 +302,31 @@
             }
 
             let html = '<table class="client-table"><thead><tr>' +
-                '<th>Client</th><th>Mappings</th><th>Last Updated</th><th>Actions</th>' +
+                '<th>Client</th><th>Total</th><th>Mapped</th><th>Not In Availity</th><th>Unmapped</th><th>Last Updated</th><th>Actions</th>' +
                 '</tr></thead><tbody>';
+
+            const ALT_PORTAL_VALUES = ['not available', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
 
             snapshot.forEach(doc => {
                 const data = doc.data();
                 const mappings = data.mappings || {};
-                const count = Object.keys(mappings).length;
+                const total = Object.keys(mappings).length;
+                let mapped = 0, altPortal = 0;
+                Object.values(mappings).forEach(m => {
+                    const pid = m.availityPayerId;
+                    if (!pid) return;
+                    if (ALT_PORTAL_VALUES.includes(pid)) altPortal++;
+                    else mapped++;
+                });
+                const unmapped = total - mapped - altPortal;
                 const lastUpdated = data.lastUpdated?.toDate?.() ? data.lastUpdated.toDate().toLocaleDateString() : 'Never';
-                const badge = count > 0 ? '<span class="badge badge-green">' + count + '</span>' : '<span class="badge badge-gray">0</span>';
 
                 html += '<tr>' +
                     '<td><strong>' + escapeHtml(data.clientName) + '</strong></td>' +
-                    '<td>' + badge + '</td>' +
+                    '<td><span class="badge badge-gray">' + total + '</span></td>' +
+                    '<td>' + (mapped > 0 ? '<span class="badge badge-green">' + mapped + '</span>' : '<span class="badge badge-gray">0</span>') + '</td>' +
+                    '<td>' + (altPortal > 0 ? '<span class="badge" style="background:var(--color-warning);color:white;">' + altPortal + '</span>' : '<span class="badge badge-gray">0</span>') + '</td>' +
+                    '<td>' + (unmapped > 0 ? '<span class="badge" style="background:var(--color-danger);color:white;">' + unmapped + '</span>' : '<span class="badge badge-gray">0</span>') + '</td>' +
                     '<td>' + lastUpdated + '</td>' +
                     '<td class="actions">' +
                         '<button class="btn btn-primary btn-sm" onclick="viewMappings(\'' + escapeHtml(data.clientName) + '\')">View</button>' +
@@ -475,7 +487,7 @@
     </script>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool — Admin Dashboard v5.13
+        Payer Mapping Tool — Admin Dashboard v5.14
     </footer>
 </body>
 </html>
