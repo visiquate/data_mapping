@@ -356,7 +356,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.8
+        Payer Mapping Tool v5.9
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -787,9 +787,12 @@
                 // Remove the state suffix (e.g., ", TX") to get just the plan name
                 const planName = queue.replace(/, [A-Z]{2}$/, '').trim();
                 const mappingKey = fullState + '|' + planName;
+                // Look up payer name from Availity list
+                const statePayers = AVAILITY_PAYERS[fullState] || [];
+                const matchedPayer = statePayers.find(p => p.payerId === payerId);
                 mappings[mappingKey] = {
                     availityPayerId: payerId,
-                    availityPayerName: payerId // UiPath format only has ID, not name
+                    availityPayerName: matchedPayer ? matchedPayer.payerName : payerId
                 };
             });
         });
