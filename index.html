@@ -356,7 +356,7 @@
     </div>
 
     <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
-        Payer Mapping Tool v5.11
+        Payer Mapping Tool v5.12
     </footer>
 
     <div class="toast" id="toast"></div>
@@ -411,16 +411,12 @@
                     if (d.id.toUpperCase() === nameUpper) doc = d;
                 });
                 if (!doc.exists) return { status: 'not_found' };
-                // Update the clientName to match the Firestore doc ID
-                clientName = doc.id;
-                document.getElementById('clientName').value = doc.id;
-                sessionStorage.setItem('currentClient', doc.id);
             }
             const hash = await hashPassphrase(passphrase);
             if (doc.data().passphraseHash === hash) {
                 firebaseConnected = true;
                 clientAuthenticated = true;
-                return { status: 'ok', data: doc.data() };
+                return { status: 'ok', data: doc.data(), resolvedName: doc.id };
             }
             return { status: 'wrong_passphrase' };
         } catch (e) {
@@ -556,9 +552,7 @@
             if (name.length < 2) { showToast('Please enter a client name (at least 2 characters)', 'error'); return; }
             if (!passphrase) { showToast('Please enter a passphrase', 'error'); return; }
 
-            clientName = name;
-            sessionStorage.setItem('currentClient', name);
-            sessionStorage.setItem('currentPassphrase', passphrase);
+            const previousClient = clientName;
             connectBtn.textContent = 'Connecting...';
             connectBtn.disabled = true;
 
@@ -568,32 +562,37 @@
             connectBtn.disabled = false;
 
             if (result.status === 'ok') {
-                // Load from Firestore
+                // Set clientName only after successful auth
+                clientName = result.resolvedName || name;
+                clientInput.value = clientName;
+                sessionStorage.setItem('currentClient', clientName);
+                sessionStorage.setItem('currentPassphrase', passphrase);
+                // Clear previous client's data before loading new
                 currentMappings = result.data.mappings || {};
                 const mappingCount = Object.keys(currentMappings).length;
                 clientStatus.textContent = 'Loaded ' + mappingCount + ' mappings from cloud';
                 clientStatus.className = 'client-status loaded';
                 clearBtn.classList.remove('hidden');
                 updateConnectionStatus('connected');
-                // Also save to localStorage as backup
-                localStorage.setItem('payerMapping_' + name, JSON.stringify({ clientName: name, lastUpdated: new Date().toISOString(), mappings: currentMappings }));
+                localStorage.setItem('payerMapping_' + clientName, JSON.stringify({ clientName: clientName, lastUpdated: new Date().toISOString(), mappings: currentMappings }));
                 renderMappingInterface();
                 updateStats();
-                showToast('Connected to ' + name + ' — loaded ' + mappingCount + ' mappings', 'success');
+                showToast('Connected to ' + clientName + ' — loaded ' + mappingCount + ' mappings', 'success');
             } else if (result.status === 'not_found') {
-                // Client doesn't exist in Firebase — fall back to localStorage
+                clientName = previousClient;
                 clientAuthenticated = false;
                 firebaseConnected = false;
                 updateConnectionStatus('offline');
-                loadClientDataLocal(name);
-                showToast('Client not found in cloud. Contact admin to create it. Using local storage.', 'error');
+                showToast('Client not found in cloud. Contact admin to create it.', 'error');
             } else if (result.status === 'wrong_passphrase') {
+                clientName = previousClient;
                 clientAuthenticated = false;
                 firebaseConnected = false;
                 updateConnectionStatus('none');
                 showToast('Incorrect passphrase for ' + name, 'error');
             } else {
                 // Offline — fall back to localStorage
+                clientName = name;
                 clientAuthenticated = false;
                 firebaseConnected = false;
                 updateConnectionStatus('offline');
