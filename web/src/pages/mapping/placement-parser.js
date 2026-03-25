@@ -229,7 +229,9 @@ function saveMappingProgress() {
     const name = state.clientName || 'Client';
     const rows = [['State', 'Plan Name', 'Payer ID', 'Payer Name']];
     Object.entries(state.currentMappings).forEach(([key, mapping]) => {
-        const [s, planName] = key.split('|');
+        const sep = key.indexOf('|');
+        const s = sep === -1 ? key : key.slice(0, sep);
+        const planName = sep === -1 ? '' : key.slice(sep + 1);
         rows.push([s, planName, mapping.availityPayerId || '', mapping.availityPayerName || '']);
     });
     const ws = XLSX.utils.aoa_to_sheet(rows);

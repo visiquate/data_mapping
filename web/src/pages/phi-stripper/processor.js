@@ -2,6 +2,17 @@ import { STATE_MAP } from '../../lib/state-map.js';
 import { showToast } from '../../lib/toast.js';
 import { readSpreadsheet, XLSX } from '../../lib/xlsx-utils.js';
 
+/**
+ * Escape HTML special characters to prevent XSS
+ * @param {string} str - String to escape
+ * @returns {string} Escaped text content safe for display
+ */
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+
 let cleanedData = [];
 let clientFileName = '';
 
@@ -103,20 +114,27 @@ export function processData(rows, filename) {
     const tbody = document.getElementById('previewBody');
     tbody.innerHTML = '';
     cleanedData.slice(0, 10).forEach((row) => {
-        tbody.innerHTML +=
-            '<tr><td>' +
-            row.State +
-            '</td><td>' +
-            row.Payer1 +
-            '</td><td>' +
-            row.Volume.toLocaleString() +
-            '</td></tr>';
+        const tr = document.createElement('tr');
+        const tdState = document.createElement('td');
+        tdState.textContent = row.State;
+        const tdPayer = document.createElement('td');
+        tdPayer.textContent = row.Payer1;
+        const tdVolume = document.createElement('td');
+        tdVolume.textContent = row.Volume.toLocaleString();
+        tr.appendChild(tdState);
+        tr.appendChild(tdPayer);
+        tr.appendChild(tdVolume);
+        tbody.appendChild(tr);
     });
     if (cleanedData.length > 10) {
-        tbody.innerHTML +=
-            '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;">... and ' +
-            (cleanedData.length - 10) +
-            ' more rows</td></tr>';
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.style.color = 'var(--text-muted)';
+        td.style.textAlign = 'center';
+        td.textContent = '... and ' + (cleanedData.length - 10) + ' more rows';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
     }
 
     document.getElementById('resultsSection').classList.remove('hidden');

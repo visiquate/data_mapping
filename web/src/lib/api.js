@@ -1,4 +1,6 @@
-const API_BASE = '/api/v1';
+const API_BASE = (window.location.hostname === 'localhost')
+    ? '/api/v1'
+    : 'https://payer-mapping-api.visiquate-inc.workers.dev/api/v1';
 
 function getToken() {
     return sessionStorage.getItem('authToken');

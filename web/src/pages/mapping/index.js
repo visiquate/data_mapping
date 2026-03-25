@@ -4,7 +4,6 @@
  */
 
 import { initDarkMode } from '../../lib/dark-mode.js';
-import { api, getStoredClientName } from '../../lib/api.js';
 import { showToast } from '../../lib/toast.js';
 import { setupClientHandler } from './client-auth.js';
 import { loadAvailityPayers } from './availity-loader.js';

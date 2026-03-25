@@ -27,12 +27,8 @@ async function adminLogin(request: Request, env: Env): Promise<Response> {
   const hash = await hashPassphrase(body.passphrase);
   const row = await env.DB.prepare('SELECT passphrase_hash FROM admin_config WHERE id = 1').first<{ passphrase_hash: string }>();
 
-  if (!row) {
-    return json({ error: 'Admin not configured. Set admin passphrase first.' }, 500);
-  }
-
-  if (hash !== row.passphrase_hash) {
-    return json({ error: 'Incorrect passphrase' }, 401);
+  if (!row || hash !== row.passphrase_hash) {
+    return json({ error: 'Invalid credentials' }, 401);
   }
 
   // Audit log
@@ -49,18 +45,16 @@ async function clientLogin(request: Request, env: Env): Promise<Response> {
   }
 
   const clientName = body.clientName.trim().toUpperCase();
-  const hash = await hashPassphrase(body.passphrase);
 
   const row = await env.DB.prepare(
     'SELECT id, client_name, passphrase_hash FROM clients WHERE client_name = ? COLLATE NOCASE'
   ).bind(clientName).first<{ id: number; client_name: string; passphrase_hash: string }>();
 
-  if (!row) {
-    return json({ error: 'Client not found' }, 404);
-  }
+  // Always hash to prevent timing-based enumeration, even when client is not found
+  const hash = await hashPassphrase(body.passphrase);
 
-  if (hash !== row.passphrase_hash) {
-    return json({ error: 'Incorrect passphrase' }, 401);
+  if (!row || hash !== row.passphrase_hash) {
+    return json({ error: 'Invalid credentials' }, 401);
   }
 
   // Audit log

@@ -51,7 +51,10 @@ export function buildPlansFromMappings() {
     const state = getState();
     state.plansByState = {};
     Object.entries(state.currentMappings).forEach(([key, mapping]) => {
-        const [st, planName] = key.split('|');
+        const sep = key.indexOf('|');
+        if (sep === -1) return;
+        const st = key.slice(0, sep);
+        const planName = key.slice(sep + 1);
         if (!st || !planName) return;
         const stateAbbrev = STATE_ABBREV[st] || st;
         if (!state.plansByState[st]) state.plansByState[st] = [];
@@ -120,7 +123,7 @@ function renderPlanRow(plan, st) {
     const mapping = state.currentMappings[mappingKey];
     const isMapped = mapping?.availityPayerId;
     const isAltPortal = ALT_PORTAL_VALUES.includes(mapping?.availityPayerId);
-    const rowClass = isAltPortal ? 'unmapped' : (isMapped ? 'mapped' : '');
+    const rowClass = isAltPortal ? 'alt-portal' : (isMapped ? 'mapped' : '');
     const selectClass = isAltPortal ? 'not-available' : (isMapped ? 'mapped' : '');
     const availityPayers = state.AVAILITY_PAYERS[st] || [];
 
@@ -159,10 +162,10 @@ function handlePayerSelection(e) {
     else delete state.currentMappings[mappingKey];
 
     const row = select.closest('tr');
-    row.classList.remove('mapped', 'unmapped');
+    row.classList.remove('mapped', 'unmapped', 'alt-portal');
     select.classList.remove('mapped', 'not-available');
 
-    if (ALT_PORTAL_VALUES.includes(payerId)) { row.classList.add('unmapped'); select.classList.add('not-available'); }
+    if (ALT_PORTAL_VALUES.includes(payerId)) { row.classList.add('alt-portal'); select.classList.add('not-available'); }
     else if (payerId) { row.classList.add('mapped'); select.classList.add('mapped'); }
     updateStats();
     autoSave();

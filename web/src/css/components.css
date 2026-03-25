@@ -71,6 +71,7 @@
 .mapping-table tr:hover { background: var(--table-hover); }
 .mapping-table tr.mapped { background: var(--row-mapped); }
 .mapping-table tr.unmapped { background: var(--row-unmapped); }
+.mapping-table tr.alt-portal { background: var(--row-unmapped); }
 
 .plan-name { font-weight: 500; color: var(--text-primary); }
 .volume { color: var(--text-muted); font-size: 0.9em; }

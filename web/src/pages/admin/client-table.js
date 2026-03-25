@@ -53,6 +53,10 @@ export async function loadClients() {
         html += '</tbody></table>';
         container.innerHTML = html;
     } catch (e) {
-        container.innerHTML = '<p style="color: var(--color-error);">Error loading clients: ' + e.message + '</p>';
+        const p = document.createElement('p');
+        p.style.color = 'var(--color-error)';
+        p.textContent = 'Error loading clients: ' + e.message;
+        container.innerHTML = '';
+        container.appendChild(p);
     }
 }

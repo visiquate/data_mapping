@@ -30,6 +30,8 @@ export function setupClientHandler() {
         restoreSession(savedClient);
     }
 
+    let connecting = false;
+
     connectBtn.addEventListener('click', handleConnect);
     passphraseInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleConnect(); });
 
@@ -64,6 +66,8 @@ export function setupClientHandler() {
      * Handle the Connect button click
      */
     async function handleConnect() {
+        if (connecting) return;
+
         const name = clientInput.value.trim().toUpperCase();
         clientInput.value = name;
         const passphrase = passphraseInput.value.trim();
@@ -71,6 +75,7 @@ export function setupClientHandler() {
         if (name.length < 2) { showToast('Please enter a client name (at least 2 characters)', 'error'); return; }
         if (!passphrase) { showToast('Please enter a passphrase', 'error'); return; }
 
+        connecting = true;
         cancelPendingAutoSave();
         state.currentMappings = {};
         state.plansByState = {};
@@ -94,41 +99,39 @@ export function setupClientHandler() {
             clearBtn.classList.remove('hidden');
             updateConnectionStatus('connected');
 
-            // Save to localStorage as backup
-            localStorage.setItem('payerMapping_' + state.clientName, JSON.stringify({
-                clientName: state.clientName,
-                lastUpdated: new Date().toISOString(),
-                mappings: state.currentMappings
-            }));
-
             if (count > 0 && Object.keys(state.plansByState).length === 0) {
                 buildPlansFromMappings();
             } else {
                 applyMappingsToInterface();
             }
-            renderMappingInterface();
-            updateStats();
             showToast('Connected to ' + state.clientName + ' — loaded ' + count + ' mappings', 'success');
         } catch (e) {
             state.clientAuthenticated = false;
             if (e.message.includes('not found')) {
+                clientStatus.textContent = 'Client not found';
+                clientStatus.className = 'client-status new';
                 updateConnectionStatus('none');
                 showToast('Client not found. Contact admin to create it.', 'error');
             } else if (e.message.includes('Incorrect')) {
+                clientStatus.textContent = 'Incorrect passphrase';
+                clientStatus.className = 'client-status new';
                 updateConnectionStatus('none');
                 showToast('Incorrect passphrase for ' + name, 'error');
             } else {
                 // Offline fallback
                 state.clientName = name;
+                clientStatus.textContent = 'Working offline';
+                clientStatus.className = 'client-status new';
                 updateConnectionStatus('offline');
                 loadClientDataLocal(name);
                 showToast('Cannot reach server. Working offline with local data.', 'error');
             }
+        } finally {
+            connecting = false;
+            connectBtn.textContent = 'Connect';
+            connectBtn.disabled = false;
+            clientStatus.classList.remove('hidden');
         }
-
-        connectBtn.textContent = 'Connect';
-        connectBtn.disabled = false;
-        clientStatus.classList.remove('hidden');
     }
 
     clearBtn.addEventListener('click', async () => {

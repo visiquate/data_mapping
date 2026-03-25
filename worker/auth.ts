@@ -17,18 +17,38 @@ function base64urlDecode(str: string): string {
   return atob(str);
 }
 
+function base64urlToBytes(str: string): Uint8Array {
+  const binary = base64urlDecode(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function importHmacKey(secret: string, usages: KeyUsage[]): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  return crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    usages,
+  );
+}
+
 async function hmacSign(secret: string, data: string): Promise<string> {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
+  const key = await importHmacKey(secret, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
   return base64url(String.fromCharCode(...new Uint8Array(sig)));
 }
 
 async function hmacVerify(secret: string, data: string, signature: string): Promise<boolean> {
-  const expected = await hmacSign(secret, data);
-  return expected === signature;
+  const encoder = new TextEncoder();
+  const key = await importHmacKey(secret, ['verify']);
+  const sigBytes = base64urlToBytes(signature);
+  return crypto.subtle.verify('HMAC', key, sigBytes, encoder.encode(data));
 }
 
 export async function createToken(env: Env, sub: string, role: 'admin' | 'client'): Promise<string> {

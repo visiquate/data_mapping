@@ -1,6 +1,7 @@
 import type { Env } from '../index';
 import { json } from '../router';
 import { requireAuth, AuthError, hashPassphrase } from '../auth';
+import { validateClientName } from './clients';
 
 export async function handleAdminRoutes(request: Request, env: Env, path: string, method: string): Promise<Response> {
   try {
@@ -19,29 +20,45 @@ export async function handleAdminRoutes(request: Request, env: Env, path: string
     // DELETE /api/v1/admin/clients/:name
     const deleteMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)$/);
     if (deleteMatch && method === 'DELETE') {
-      return deleteClient(env, decodeURIComponent(deleteMatch[1]));
+      const name = decodeURIComponent(deleteMatch[1]);
+      if (!validateClientName(name)) {
+        return json({ error: 'Invalid client name' }, 400);
+      }
+      return deleteClient(env, name);
     }
 
     // PATCH /api/v1/admin/clients/:name/passphrase
     const patchMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)\/passphrase$/);
     if (patchMatch && method === 'PATCH') {
-      return resetPassphrase(request, env, decodeURIComponent(patchMatch[1]));
+      const name = decodeURIComponent(patchMatch[1]);
+      if (!validateClientName(name)) {
+        return json({ error: 'Invalid client name' }, 400);
+      }
+      return resetPassphrase(request, env, name);
     }
 
     // GET /api/v1/admin/clients/:name/export/uipath
     const uipathMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)\/export\/uipath$/);
     if (uipathMatch && method === 'GET') {
-      return exportUiPath(env, decodeURIComponent(uipathMatch[1]));
+      const name = decodeURIComponent(uipathMatch[1]);
+      if (!validateClientName(name)) {
+        return json({ error: 'Invalid client name' }, 400);
+      }
+      return exportUiPath(env, name, payload.sub);
     }
 
     // GET /api/v1/admin/clients/:name/mappings
     const mappingsMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)\/mappings$/);
     if (mappingsMatch && method === 'GET') {
-      return getClientMappings(env, decodeURIComponent(mappingsMatch[1]));
+      const name = decodeURIComponent(mappingsMatch[1]);
+      if (!validateClientName(name)) {
+        return json({ error: 'Invalid client name' }, 400);
+      }
+      return getClientMappings(env, name, payload.sub);
     }
 
     return json({ error: 'Not found' }, 404);
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof AuthError) {
       return json({ error: error.message }, error.status);
     }
@@ -86,6 +103,11 @@ async function createClient(request: Request, env: Env): Promise<Response> {
   }
 
   const clientName = body.clientName.trim().toUpperCase();
+
+  if (!validateClientName(clientName)) {
+    return json({ error: 'Invalid client name' }, 400);
+  }
+
   const hash = await hashPassphrase(body.passphrase);
 
   // Check if exists
@@ -138,7 +160,7 @@ async function resetPassphrase(request: Request, env: Env, clientName: string): 
   return json({ ok: true });
 }
 
-async function getClientMappings(env: Env, clientName: string): Promise<Response> {
+async function getClientMappings(env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
   if (!client) {
     return json({ error: 'Client not found' }, 404);
@@ -147,6 +169,9 @@ async function getClientMappings(env: Env, clientName: string): Promise<Response
   const rows = await env.DB.prepare(
     'SELECT state_name, plan_name, availity_payer_id, availity_payer_name FROM payer_mappings WHERE client_id = ? ORDER BY state_name, plan_name'
   ).bind(client.id).all();
+
+  // Audit log
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind(actor, 'admin_mappings_read', clientName).run();
 
   return json(rows.results.map((r: any) => ({
     state: r.state_name,
@@ -158,7 +183,7 @@ async function getClientMappings(env: Env, clientName: string): Promise<Response
 
 const ALT_PORTAL_VALUES = ['not available', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
 
-async function exportUiPath(env: Env, clientName: string): Promise<Response> {
+async function exportUiPath(env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
   if (!client) {
     return json({ error: 'Client not found' }, 404);
@@ -167,6 +192,9 @@ async function exportUiPath(env: Env, clientName: string): Promise<Response> {
   const rows = await env.DB.prepare(
     'SELECT state_name, plan_name, availity_payer_id FROM payer_mappings WHERE client_id = ? AND availity_payer_id IS NOT NULL'
   ).bind(client.id).all();
+
+  // Audit log
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind(actor, 'admin_uipath_export', clientName).run();
 
   // State name to abbreviation map
   const STATE_ABBREV: Record<string, string> = {

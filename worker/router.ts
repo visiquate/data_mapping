@@ -11,7 +11,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
   // Health check
   if (path === '/api/v1/health') {
-    return json({ status: 'ok', version: '6.0.0', environment: env.ENVIRONMENT });
+    return json({ status: 'ok' });
   }
 
   // Auth routes
