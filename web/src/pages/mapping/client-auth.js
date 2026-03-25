@@ -21,6 +21,9 @@ export function setupClientHandler() {
     const clearBtn = document.getElementById('clearDataBtn');
     const state = getState();
 
+    // Populate client dropdown
+    populateClientList();
+
     // Restore session
     const savedClient = sessionStorage.getItem('currentClient');
     const savedToken = sessionStorage.getItem('authToken');
@@ -184,6 +187,22 @@ function loadClientDataLocal(name) {
         clientStatus.textContent = 'New client - no saved data';
         clientStatus.className = 'client-status new';
         clearBtn.classList.add('hidden');
+    }
+}
+
+/**
+ * Populate the client datalist with names from the API
+ */
+async function populateClientList() {
+    try {
+        const names = await api.get('/clients');
+        const datalist = document.getElementById('clientList');
+        if (datalist && Array.isArray(names)) {
+            datalist.innerHTML = names.map(n => '<option value="' + n + '">').join('');
+        }
+    } catch (e) {
+        // Non-critical — dropdown just won't have suggestions
+        console.log('Could not load client list:', e.message);
     }
 }
 
