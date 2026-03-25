@@ -107,16 +107,11 @@ export function setupClientHandler() {
             showToast('Connected to ' + state.clientName + ' — loaded ' + count + ' mappings', 'success');
         } catch (e) {
             state.clientAuthenticated = false;
-            if (e.message.includes('not found')) {
-                clientStatus.textContent = 'Client not found';
+            if (e.message.includes('Invalid credentials')) {
+                clientStatus.textContent = 'Invalid credentials';
                 clientStatus.className = 'client-status new';
                 updateConnectionStatus('none');
-                showToast('Client not found. Contact admin to create it.', 'error');
-            } else if (e.message.includes('Incorrect')) {
-                clientStatus.textContent = 'Incorrect passphrase';
-                clientStatus.className = 'client-status new';
-                updateConnectionStatus('none');
-                showToast('Incorrect passphrase for ' + name, 'error');
+                showToast('Invalid credentials for ' + name + '. Check client name and passphrase.', 'error');
             } else {
                 // Offline fallback
                 state.clientName = name;

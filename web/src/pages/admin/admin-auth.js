@@ -34,10 +34,6 @@ async function handleLogin() {
         loadClients();
         showToast('Logged in as admin', 'success');
     } catch (e) {
-        if (e.message.includes('Incorrect')) {
-            showToast('Incorrect passphrase', 'error');
-        } else {
-            showToast('Error: ' + e.message, 'error');
-        }
+        showToast(e.message || 'Login failed', 'error');
     }
 }

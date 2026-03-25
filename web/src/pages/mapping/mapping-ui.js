@@ -100,9 +100,26 @@ export function renderMappingInterface(searchTerm = '') {
         stateSection.className = 'state-section';
         const stateAbbrev = plans[0]?.stateAbbrev || STATE_ABBREV[st] || '';
 
-        stateSection.innerHTML = '<div class="state-header"><span>' + st + ' (' + stateAbbrev + ')</span><span class="state-badge">' + plans.length + ' plans</span></div>' +
-            '<table class="mapping-table"><thead><tr><th style="width:40%">Plan Name</th><th style="width:15%">Volume</th><th style="width:45%">Payer Mapping</th></tr></thead><tbody>' +
-            plans.map(plan => renderPlanRow(plan, st)).join('') + '</tbody></table>';
+        const stateHeader = document.createElement('div');
+        stateHeader.className = 'state-header';
+
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = st + ' (' + stateAbbrev + ')';
+
+        const badgeSpan = document.createElement('span');
+        badgeSpan.className = 'state-badge';
+        badgeSpan.textContent = plans.length + ' plans';
+
+        stateHeader.appendChild(titleSpan);
+        stateHeader.appendChild(badgeSpan);
+
+        const table = document.createElement('table');
+        table.className = 'mapping-table';
+        table.innerHTML = '<thead><tr><th style="width:40%">Plan Name</th><th style="width:15%">Volume</th><th style="width:45%">Payer Mapping</th></tr></thead><tbody>' +
+            plans.map(plan => renderPlanRow(plan, st)).join('') + '</tbody>';
+
+        stateSection.appendChild(stateHeader);
+        stateSection.appendChild(table);
         container.appendChild(stateSection);
     });
 

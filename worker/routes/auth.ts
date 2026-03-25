@@ -1,6 +1,10 @@
 import type { Env } from '../index';
-import { json } from '../router';
-import { createToken, hashPassphrase } from '../auth';
+import { json, safeJson } from '../router';
+import { createToken, verifyPassphrase, hashPassphraseSecure } from '../auth';
+
+// Finding 2: max failed login attempts per IP in the rate-limit window
+const RATE_LIMIT_MAX_FAILURES = 10;
+const RATE_LIMIT_WINDOW_SECONDS = 900; // 15 minutes
 
 export async function handleAuthRoutes(request: Request, env: Env, path: string, method: string): Promise<Response> {
   if (method !== 'POST') {
@@ -18,17 +22,54 @@ export async function handleAuthRoutes(request: Request, env: Env, path: string,
   return json({ error: 'Not found' }, 404);
 }
 
+// Finding 2: check rate limit for an IP; returns true when the caller is blocked
+async function isRateLimited(env: Env, ip: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) as cnt FROM audit_log
+     WHERE actor = 'anonymous' AND action = 'login_failed'
+       AND detail LIKE ? AND event_time > unixepoch() - ${RATE_LIMIT_WINDOW_SECONDS}`
+  ).bind(`%"ip":"${ip}"%`).first<{ cnt: number }>();
+  return (row?.cnt ?? 0) >= RATE_LIMIT_MAX_FAILURES;
+}
+
+// Finding 2: record a failed login attempt with the originating IP
+async function logFailedLogin(env: Env, ip: string, context: string): Promise<void> {
+  await env.DB.prepare(
+    'INSERT INTO audit_log (actor, action, detail) VALUES (?, ?, ?)'
+  ).bind('anonymous', 'login_failed', JSON.stringify({ ip, context })).run();
+}
+
 async function adminLogin(request: Request, env: Env): Promise<Response> {
-  const body = await request.json() as { passphrase?: string };
+  // Finding 2: rate limiting
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  if (await isRateLimited(env, ip)) {
+    return json({ error: 'Too many failed attempts. Please try again later.' }, 429);
+  }
+
+  // Finding 8: safe JSON parse
+  const body = await safeJson<{ passphrase?: string }>(request);
+  if (body === null) {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
   if (!body.passphrase) {
     return json({ error: 'Passphrase required' }, 400);
   }
 
-  const hash = await hashPassphrase(body.passphrase);
   const row = await env.DB.prepare('SELECT passphrase_hash FROM admin_config WHERE id = 1').first<{ passphrase_hash: string }>();
 
-  if (!row || hash !== row.passphrase_hash) {
+  // Finding 1b: use verifyPassphrase (supports both legacy SHA-256 and PBKDF2)
+  const valid = row ? await verifyPassphrase(body.passphrase, row.passphrase_hash) : false;
+
+  if (!row || !valid) {
+    // Finding 2: audit failed login
+    await logFailedLogin(env, ip, 'admin');
     return json({ error: 'Invalid credentials' }, 401);
+  }
+
+  // Finding 1b: transparently migrate legacy SHA-256 hashes to PBKDF2 on successful login
+  if (!row.passphrase_hash.startsWith('pbkdf2.')) {
+    const newHash = await hashPassphraseSecure(body.passphrase);
+    await env.DB.prepare('UPDATE admin_config SET passphrase_hash = ? WHERE id = 1').bind(newHash).run();
   }
 
   // Audit log
@@ -39,7 +80,17 @@ async function adminLogin(request: Request, env: Env): Promise<Response> {
 }
 
 async function clientLogin(request: Request, env: Env): Promise<Response> {
-  const body = await request.json() as { clientName?: string; passphrase?: string };
+  // Finding 2: rate limiting
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  if (await isRateLimited(env, ip)) {
+    return json({ error: 'Too many failed attempts. Please try again later.' }, 429);
+  }
+
+  // Finding 8: safe JSON parse
+  const body = await safeJson<{ clientName?: string; passphrase?: string }>(request);
+  if (body === null) {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
   if (!body.clientName || !body.passphrase) {
     return json({ error: 'Client name and passphrase required' }, 400);
   }
@@ -50,11 +101,19 @@ async function clientLogin(request: Request, env: Env): Promise<Response> {
     'SELECT id, client_name, passphrase_hash FROM clients WHERE client_name = ? COLLATE NOCASE'
   ).bind(clientName).first<{ id: number; client_name: string; passphrase_hash: string }>();
 
-  // Always hash to prevent timing-based enumeration, even when client is not found
-  const hash = await hashPassphrase(body.passphrase);
+  // Finding 1b: use verifyPassphrase; still call even when row is missing to avoid timing oracle
+  const valid = row ? await verifyPassphrase(body.passphrase, row.passphrase_hash) : false;
 
-  if (!row || hash !== row.passphrase_hash) {
+  if (!row || !valid) {
+    // Finding 2: audit failed login
+    await logFailedLogin(env, ip, `client:${clientName}`);
     return json({ error: 'Invalid credentials' }, 401);
+  }
+
+  // Finding 1b: transparently migrate legacy SHA-256 hashes to PBKDF2 on successful login
+  if (!row.passphrase_hash.startsWith('pbkdf2.')) {
+    const newHash = await hashPassphraseSecure(body.passphrase);
+    await env.DB.prepare('UPDATE clients SET passphrase_hash = ? WHERE client_name = ?').bind(newHash, row.client_name).run();
   }
 
   // Audit log

@@ -19,6 +19,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const state = getState();
     state.AVAILITY_PAYERS = await loadAvailityPayers();
+
+    const presetClient = new URLSearchParams(window.location.search).get('client');
+    if (presetClient) {
+        document.getElementById('clientName').value = presetClient.toUpperCase();
+    }
+
     setupClientHandler();
     setupFileHandlers();
     setupFilterButtons();

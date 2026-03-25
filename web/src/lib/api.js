@@ -30,8 +30,13 @@ async function request(path, options = {}) {
     const response = await fetch(API_BASE + path, { ...options, headers });
 
     if (response.status === 401) {
-        clearToken();
-        throw new Error('Session expired. Please log in again.');
+        // Don't clear token for auth endpoints — these are login failures, not expired sessions
+        if (!path.startsWith('/auth/')) {
+            clearToken();
+            throw new Error('Session expired. Please log in again.');
+        }
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Invalid credentials');
     }
 
     if (!response.ok) {

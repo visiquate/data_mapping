@@ -1,6 +1,6 @@
 import type { Env } from '../index';
-import { json } from '../router';
-import { requireAuth, AuthError, hashPassphrase } from '../auth';
+import { json, safeJson } from '../router';
+import { requireAuth, AuthError, hashPassphraseSecure } from '../auth';
 import { validateClientName } from './clients';
 
 export async function handleAdminRoutes(request: Request, env: Env, path: string, method: string): Promise<Response> {
@@ -94,7 +94,11 @@ async function listClients(env: Env): Promise<Response> {
 }
 
 async function createClient(request: Request, env: Env): Promise<Response> {
-  const body = await request.json() as { clientName?: string; passphrase?: string };
+  // Finding 8: safe JSON parse
+  const body = await safeJson<{ clientName?: string; passphrase?: string }>(request);
+  if (body === null) {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
   if (!body.clientName || body.clientName.trim().length < 2) {
     return json({ error: 'Client name must be at least 2 characters' }, 400);
   }
@@ -108,7 +112,8 @@ async function createClient(request: Request, env: Env): Promise<Response> {
     return json({ error: 'Invalid client name' }, 400);
   }
 
-  const hash = await hashPassphrase(body.passphrase);
+  // Finding 1b: use PBKDF2 for new clients
+  const hash = await hashPassphraseSecure(body.passphrase);
 
   // Check if exists
   const existing = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first();
@@ -140,12 +145,17 @@ async function deleteClient(env: Env, clientName: string): Promise<Response> {
 }
 
 async function resetPassphrase(request: Request, env: Env, clientName: string): Promise<Response> {
-  const body = await request.json() as { newPassphrase?: string };
+  // Finding 8: safe JSON parse
+  const body = await safeJson<{ newPassphrase?: string }>(request);
+  if (body === null) {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
   if (!body.newPassphrase) {
     return json({ error: 'New passphrase required' }, 400);
   }
 
-  const hash = await hashPassphrase(body.newPassphrase);
+  // Finding 1b: use PBKDF2 for reset passphrases
+  const hash = await hashPassphraseSecure(body.newPassphrase);
   const result = await env.DB.prepare(
     'UPDATE clients SET passphrase_hash = ?, last_updated = unixepoch() WHERE client_name = ? COLLATE NOCASE'
   ).bind(hash, clientName).run();
@@ -182,6 +192,19 @@ async function getClientMappings(env: Env, clientName: string, actor: string): P
 }
 
 const ALT_PORTAL_VALUES = ['not available', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
+
+// Finding 5: PAGE_SCHEMA_DATA copied from web/src/lib/state-map.js
+const PAGE_SCHEMA_DATA: Record<string, number> = {
+  "20554": 1, "AETNA": 2, "ABH01": 4, "WLPNT": 5, "BCBSTX": 6, "HCSV2": 7, "HUMANA": 9,
+  "190": 8, "HMAPD": 0, "193": 0, "661": 5, "551": 0, "66003": 8, "91051": 0, "1260": 0,
+  "46148": 0, "76498": 0, "10550": 0,
+  "LOUISIANA%2520HEALTHCARE%2520CONNECTIONS": 10, "Superior": 11, "OTHERBLUEPLANS-TX": 0,
+  "88221": 0, "75261": 0, "80141T": 0, "00390": 4, "00932": 9, "00430": 8, "00430F": 8,
+  "55891": 8, "59355M": 8, "38336": 1, "A3144": 1, "A6001": 10, "IOWATOTALCARE": 10,
+  "NEBRASKA%2520TOTAL%2520CARE": 10, "A52189": 0, "BHOVO": 0, "52189": 0, "A6014": 10,
+  "160": 14, "A6863": 1, "DEVOT": 12, "COORDINATED%2520CARE": 10, "WCCENTENE": 10,
+  "A8822": 15, "UHC": 17,
+};
 
 async function exportUiPath(env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
@@ -225,10 +248,12 @@ async function exportUiPath(env: Env, clientName: string, actor: string): Promis
     const pKey = stateAbbrev + '|' + payerId;
 
     if (!outputByPayerState[pKey]) {
+      // Finding 5: use PAGE_SCHEMA_DATA lookup instead of hardcoded 1
+      const pageLayoutType = PAGE_SCHEMA_DATA[payerId] ?? 1;
       outputByPayerState[pKey] = {
         LocationCode: stateAbbrev,
         AvailityPayerID: payerId,
-        ClaimDataPageLayoutType: 1,
+        ClaimDataPageLayoutType: pageLayoutType,
         Queues: [],
       };
     }

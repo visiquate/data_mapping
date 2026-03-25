@@ -43,3 +43,12 @@ export function json(data: any, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+// Finding 8: safe JSON parse — returns null on malformed bodies instead of throwing
+export async function safeJson<T>(request: Request): Promise<T | null> {
+  try {
+    return await request.json() as T;
+  } catch {
+    return null;
+  }
+}
