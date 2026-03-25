@@ -19,6 +19,7 @@ export function setupClientHandler() {
     const connectBtn = document.getElementById('connectBtn');
     const clientStatus = document.getElementById('clientStatus');
     const clearBtn = document.getElementById('clearDataBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
     const state = getState();
 
     // Populate client dropdown
@@ -37,6 +38,7 @@ export function setupClientHandler() {
 
     connectBtn.addEventListener('click', handleConnect);
     passphraseInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleConnect(); });
+    disconnectBtn.addEventListener('click', handleDisconnect);
 
     /**
      * Restore a saved client session
@@ -141,6 +143,31 @@ export function setupClientHandler() {
         }
     }
 
+    /**
+     * Handle the Disconnect button click
+     */
+    function handleDisconnect() {
+        cancelPendingAutoSave();
+        sessionStorage.removeItem('currentClient');
+        sessionStorage.removeItem('authToken');
+        state.clientName = '';
+        state.clientAuthenticated = false;
+        state.currentMappings = {};
+        state.plansByState = {};
+        state.placementData = [];
+        clientInput.value = '';
+        passphraseInput.value = '';
+        clientStatus.textContent = '';
+        clientStatus.className = 'client-status hidden';
+        clearBtn.classList.add('hidden');
+        disconnectBtn.classList.add('hidden');
+        updateConnectionStatus('none');
+        renderMappingInterface();
+        updateStats();
+        document.getElementById('mappingContent').innerHTML = '';
+        showToast('Disconnected', 'success');
+    }
+
     clearBtn.addEventListener('click', async () => {
         if (confirm('WARNING: This will permanently delete ALL saved mappings for "' + state.clientName + '". This cannot be undone.\n\nAre you absolutely sure?')) {
             localStorage.removeItem('payerMapping_' + state.clientName);
@@ -212,13 +239,17 @@ async function populateClientList() {
  */
 export function updateConnectionStatus(status) {
     const el = document.getElementById('connectionStatus');
+    const discBtn = document.getElementById('disconnectBtn');
     if (status === 'connected') {
         el.innerHTML = '&#9729;&#65039; Connected';
         el.style.color = 'var(--color-success)';
+        discBtn.classList.remove('hidden');
     } else if (status === 'offline') {
         el.innerHTML = '&#128190; Local only';
         el.style.color = 'var(--color-warning)';
+        discBtn.classList.remove('hidden');
     } else if (status === 'none') {
         el.innerHTML = '';
+        discBtn.classList.add('hidden');
     }
 }
