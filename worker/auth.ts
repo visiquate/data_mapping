@@ -145,7 +145,7 @@ export async function hashPassphraseSecure(text: string): Promise<string> {
     {
       name: 'PBKDF2',
       salt: saltBytes,
-      iterations: 210000,
+      iterations: 100000,
       hash: 'SHA-256',
     },
     keyMaterial,
@@ -154,7 +154,7 @@ export async function hashPassphraseSecure(text: string): Promise<string> {
 
   const saltB64 = btoa(String.fromCharCode(...saltBytes));
   const hashB64 = btoa(String.fromCharCode(...new Uint8Array(derivedBits)));
-  return `pbkdf2.210000.${saltB64}.${hashB64}`;
+  return `pbkdf2.100000.${saltB64}.${hashB64}`;
 }
 
 // Finding 1: auto-detect format and compare; returns true if text matches stored hash
