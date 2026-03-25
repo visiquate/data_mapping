@@ -26,7 +26,7 @@ function base64urlToBytes(str: string): Uint8Array {
   return bytes;
 }
 
-async function importHmacKey(secret: string, usages: KeyUsage[]): Promise<CryptoKey> {
+async function importHmacKey(secret: string, usages: string[]): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   return crypto.subtle.importKey(
     'raw',
