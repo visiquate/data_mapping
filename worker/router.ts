@@ -14,6 +14,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json({ status: 'ok' });
   }
 
+  // Public: list client names (no auth required)
+  if (path === '/api/v1/clients' && method === 'GET') {
+    const rows = await env.DB.prepare('SELECT client_name FROM clients ORDER BY client_name').all();
+    return json(rows.results.map((r: any) => r.client_name));
+  }
+
   // Auth routes
   if (path.startsWith('/api/v1/auth/')) {
     return handleAuthRoutes(request, env, path, method);
