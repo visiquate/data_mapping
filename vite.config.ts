@@ -1,10 +1,16 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
+const commitHash = execSync('git rev-parse --short HEAD').toString().trim();
+
 export default defineConfig({
+  define: {
+    '__COMMIT_HASH__': JSON.stringify(commitHash),
+  },
   root: 'web',
   build: {
     outDir: '../dist',

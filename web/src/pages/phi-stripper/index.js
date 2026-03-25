@@ -1,12 +1,13 @@
 import { initDarkMode } from '../../lib/dark-mode.js';
+import { initVersion } from '../../lib/version.js';
 import { processFile, downloadCleanFile } from './processor.js';
 
 // Expose downloadCleanFile to window for onclick handler
 window.downloadCleanFile = downloadCleanFile;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize dark mode toggle
     initDarkMode();
+    initVersion();
 
     // Set up drag and drop
     const dropZone = document.getElementById('dropZone');

@@ -4,6 +4,7 @@
  */
 
 import { initDarkMode } from '../../lib/dark-mode.js';
+import { initVersion } from '../../lib/version.js';
 import { showToast } from '../../lib/toast.js';
 import { setupClientHandler } from './client-auth.js';
 import { loadAvailityPayers } from './availity-loader.js';
@@ -16,6 +17,7 @@ import { getState } from './state.js';
  */
 document.addEventListener('DOMContentLoaded', async () => {
     initDarkMode();
+    initVersion();
 
     const state = getState();
     state.AVAILITY_PAYERS = await loadAvailityPayers();
