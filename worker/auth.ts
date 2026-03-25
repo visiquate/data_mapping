@@ -56,6 +56,11 @@ export async function createToken(env: Env, sub: string, role: 'admin' | 'client
     ? parseInt(env.ADMIN_TOKEN_EXPIRY_SECONDS || '900')
     : parseInt(env.TOKEN_EXPIRY_SECONDS || '14400');
 
+  // Finding 7: validate expiry is a finite positive number
+  if (!Number.isFinite(expirySeconds) || expirySeconds <= 0) {
+    throw new Error(`Invalid token expiry configuration: ${expirySeconds}`);
+  }
+
   const payload: TokenPayload = {
     sub,
     role,
@@ -80,6 +85,8 @@ export async function verifyToken(env: Env, token: string): Promise<TokenPayload
 
   try {
     const payload: TokenPayload = JSON.parse(base64urlDecode(body));
+    // Finding 7: guard against NaN/non-finite exp before comparison
+    if (!Number.isFinite(payload.exp)) return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
@@ -114,8 +121,96 @@ export class AuthError extends Error {
   }
 }
 
-export async function hashPassphrase(text: string): Promise<string> {
+// Finding 1: legacy SHA-256 hash (kept for transparent migration)
+export async function hashPassphraseLegacy(text: string): Promise<string> {
   const encoded = new TextEncoder().encode(text);
   const hash = await crypto.subtle.digest('SHA-256', encoded);
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+// Finding 1: PBKDF2-based hash — returns "pbkdf2.210000.base64salt.base64hash"
+export async function hashPassphraseSecure(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(text),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: saltBytes,
+      iterations: 210000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    256,
+  );
+
+  const saltB64 = btoa(String.fromCharCode(...saltBytes));
+  const hashB64 = btoa(String.fromCharCode(...new Uint8Array(derivedBits)));
+  return `pbkdf2.210000.${saltB64}.${hashB64}`;
+}
+
+// Finding 1: auto-detect format and compare; returns true if text matches stored hash
+export async function verifyPassphrase(text: string, stored: string): Promise<boolean> {
+  if (stored.startsWith('pbkdf2.')) {
+    // Format: pbkdf2.<iterations>.<base64salt>.<base64hash>
+    const parts = stored.split('.');
+    if (parts.length !== 4) return false;
+    const iterations = parseInt(parts[1], 10);
+    if (!Number.isFinite(iterations) || iterations <= 0) return false;
+
+    let saltBytes: Uint8Array;
+    let expectedHashBytes: Uint8Array;
+    try {
+      saltBytes = Uint8Array.from(atob(parts[2]), c => c.charCodeAt(0));
+      expectedHashBytes = Uint8Array.from(atob(parts[3]), c => c.charCodeAt(0));
+    } catch {
+      return false;
+    }
+
+    const encoder = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(text),
+      'PBKDF2',
+      false,
+      ['deriveBits'],
+    );
+
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: saltBytes,
+        iterations,
+        hash: 'SHA-256',
+      },
+      keyMaterial,
+      256,
+    );
+
+    const derivedBytes = new Uint8Array(derivedBits);
+
+    // Constant-time comparison
+    if (derivedBytes.length !== expectedHashBytes.length) return false;
+    let diff = 0;
+    for (let i = 0; i < derivedBytes.length; i++) {
+      diff |= derivedBytes[i] ^ expectedHashBytes[i];
+    }
+    return diff === 0;
+  }
+
+  // Legacy: plain SHA-256 hex
+  const legacyHash = await hashPassphraseLegacy(text);
+  return legacyHash === stored;
+}
+
+// Keep the original export name as an alias so any remaining callers don't break at compile time.
+// New code should prefer hashPassphraseSecure.
+export const hashPassphrase = hashPassphraseLegacy;

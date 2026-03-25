@@ -1,5 +1,5 @@
 import type { Env } from '../index';
-import { json } from '../router';
+import { json, safeJson } from '../router';
 import { requireAuth, AuthError } from '../auth';
 
 const MAX_MAPPING_ENTRIES = 5000;
@@ -37,7 +37,8 @@ export async function handleClientRoutes(request: Request, env: Env, path: strin
     }
 
     if (method === 'PUT') {
-      return putMappings(request, env, clientName);
+      // Finding 9: pass payload.sub as actor
+      return putMappings(request, env, clientName, payload.sub);
     }
 
     return json({ error: 'Method not allowed' }, 405);
@@ -76,13 +77,18 @@ async function getMappings(env: Env, clientName: string, actor: string): Promise
   return json({ mappings });
 }
 
-async function putMappings(request: Request, env: Env, clientName: string): Promise<Response> {
+// Finding 9: accept actor parameter so the audit log records the authenticated subject
+async function putMappings(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
   if (!client) {
     return json({ error: 'Client not found' }, 404);
   }
 
-  const body = await request.json() as { mappings: Record<string, { availityPayerId?: string; availityPayerName?: string }> };
+  // Finding 8: safe JSON parse
+  const body = await safeJson<{ mappings: Record<string, { availityPayerId?: string; availityPayerName?: string }> }>(request);
+  if (body === null) {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
   if (!body.mappings || typeof body.mappings !== 'object') {
     return json({ error: 'Invalid mappings object' }, 400);
   }
@@ -94,9 +100,12 @@ async function putMappings(request: Request, env: Env, clientName: string): Prom
     return json({ error: `Too many mapping entries (max ${MAX_MAPPING_ENTRIES})` }, 400);
   }
 
+  // Finding 6: validate all keys upfront — each key must contain '|' with a non-empty part before it
   for (const [key, val] of entries) {
     const pipeIndex = key.indexOf('|');
-    if (pipeIndex === -1) continue;
+    if (pipeIndex === -1 || pipeIndex === 0) {
+      return json({ error: `Invalid mapping key "${key}": must be in "StateName|PlanName" format with a non-empty state name before the pipe` }, 400);
+    }
     const stateName = key.slice(0, pipeIndex);
     const planName = key.slice(pipeIndex + 1);
     if (stateName.length > MAX_STATE_PLAN_NAME_LEN) {
@@ -122,7 +131,7 @@ async function putMappings(request: Request, env: Env, clientName: string): Prom
 
   for (let i = 0; i < entries.length; i += batchSize) {
     const batch = entries.slice(i, i + batchSize);
-    const statements = batch.filter(([key]) => key.includes('|')).map(([key, val]) => {
+    const statements = batch.map(([key, val]) => {
       const pipeIndex = key.indexOf('|');
       const stateName = key.slice(0, pipeIndex);
       const planName = key.slice(pipeIndex + 1);
@@ -140,8 +149,8 @@ async function putMappings(request: Request, env: Env, clientName: string): Prom
   // Update client last_updated
   await env.DB.prepare('UPDATE clients SET last_updated = unixepoch() WHERE id = ?').bind(client.id).run();
 
-  // Audit log with actual inserted count
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(clientName, 'mappings_updated', clientName, JSON.stringify({ count: insertedCount })).run();
+  // Finding 9: use actor (payload.sub) instead of clientName in audit log
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'mappings_updated', clientName, JSON.stringify({ count: insertedCount })).run();
 
   return json({ ok: true, count: insertedCount });
 }
