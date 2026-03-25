@@ -19,6 +19,9 @@ jobs:
 
       - run: npm install
 
+      - name: Generate payer data
+        run: npm run convert-payers
+
       - name: TypeScript check
         run: npx tsc --noEmit
 
