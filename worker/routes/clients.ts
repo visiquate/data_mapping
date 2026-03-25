@@ -45,7 +45,7 @@ async function getMappings(env: Env, clientName: string): Promise<Response> {
     'SELECT state_name, plan_name, availity_payer_id, availity_payer_name FROM payer_mappings WHERE client_id = ?'
   ).bind(client.id).all();
 
-  // Convert to the same format as the old Firestore mappings object: { "State|PlanName": { availityPayerId, availityPayerName } }
+  // Return as { "State|PlanName": { availityPayerId, availityPayerName } }
   const mappings: Record<string, { availityPayerId: string; availityPayerName: string }> = {};
   for (const row of rows.results) {
     const r = row as any;

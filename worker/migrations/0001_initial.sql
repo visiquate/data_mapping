@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS clients (
     last_updated    INTEGER DEFAULT (unixepoch())
 );
 
--- Payer mappings (normalized from the Firestore JSON blob)
+-- Payer mappings (one row per client/state/plan combination)
 CREATE TABLE IF NOT EXISTS payer_mappings (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id           INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,

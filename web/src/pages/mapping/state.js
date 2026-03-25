@@ -12,7 +12,6 @@ const state = {
     clientName: '',
     PAGE_SCHEMAS: null,
     clientAuthenticated: false,
-    firebaseSaveTimer: null,
 };
 
 /**
