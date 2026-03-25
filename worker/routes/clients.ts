@@ -33,7 +33,7 @@ export async function handleClientRoutes(request: Request, env: Env, path: strin
     }
 
     if (method === 'GET') {
-      return getMappings(env, clientName, payload.sub);
+      return getMappings(request, env, clientName, payload.sub);
     }
 
     if (method === 'PUT') {
@@ -50,7 +50,7 @@ export async function handleClientRoutes(request: Request, env: Env, path: strin
   }
 }
 
-async function getMappings(env: Env, clientName: string, actor: string): Promise<Response> {
+async function getMappings(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
   if (!client) {
     return json({ error: 'Client not found' }, 404);
@@ -60,8 +60,9 @@ async function getMappings(env: Env, clientName: string, actor: string): Promise
     'SELECT state_name, plan_name, availity_payer_id, availity_payer_name FROM payer_mappings WHERE client_id = ?'
   ).bind(client.id).all();
 
-  // Audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind(actor, 'mappings_read', clientName).run();
+  // Fix 6: include IP in audit log detail
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'mappings_read', clientName, JSON.stringify({ ip })).run();
 
   // Return as { "State|PlanName": { availityPayerId, availityPayerName } }
   const mappings: Record<string, { availityPayerId: string; availityPayerName: string }> = {};
@@ -108,6 +109,9 @@ async function putMappings(request: Request, env: Env, clientName: string, actor
     }
     const stateName = key.slice(0, pipeIndex);
     const planName = key.slice(pipeIndex + 1);
+    if (planName.length === 0) {
+      return json({ error: `Invalid mapping key: plan_name cannot be empty` }, 400);
+    }
     if (stateName.length > MAX_STATE_PLAN_NAME_LEN) {
       return json({ error: `state_name exceeds ${MAX_STATE_PLAN_NAME_LEN} characters` }, 400);
     }
@@ -149,8 +153,9 @@ async function putMappings(request: Request, env: Env, clientName: string, actor
   // Update client last_updated
   await env.DB.prepare('UPDATE clients SET last_updated = unixepoch() WHERE id = ?').bind(client.id).run();
 
-  // Finding 9: use actor (payload.sub) instead of clientName in audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'mappings_updated', clientName, JSON.stringify({ count: insertedCount })).run();
+  // Finding 9: use actor (payload.sub) instead of clientName in audit log; Fix 6: include IP
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'mappings_updated', clientName, JSON.stringify({ count: insertedCount, ip })).run();
 
   return json({ ok: true, count: insertedCount });
 }

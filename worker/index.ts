@@ -43,20 +43,29 @@ export default {
       corsHeaders['Access-Control-Allow-Origin'] = allowedOrigin;
     }
 
+    // Fix 7: security headers applied to every response
+    const securityHeaders: Record<string, string> = {
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Cache-Control': 'no-store',
+    };
+
+    // Fix 8: return 403 for OPTIONS from disallowed origins; otherwise complete the preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
+      if (!allowedOrigin) return new Response(null, { status: 403 });
+      return new Response(null, { status: 204, headers: { ...corsHeaders, ...securityHeaders } });
     }
 
     try {
       const response = await handleRequest(request, env);
-      Object.entries(corsHeaders).forEach(([key, value]) => {
+      Object.entries({ ...corsHeaders, ...securityHeaders }).forEach(([key, value]) => {
         response.headers.set(key, value);
       });
       return response;
     } catch (_error: unknown) {
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
         status: 500,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        headers: { 'Content-Type': 'application/json', ...corsHeaders, ...securityHeaders },
       });
     }
   },

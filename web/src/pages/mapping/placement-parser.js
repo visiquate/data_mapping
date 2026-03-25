@@ -200,7 +200,8 @@ export function processPlacementData() {
         const fullState = STATE_MAP[stateUpper] || STATE_MAP[s] || Object.keys(STATE_MAP).reduce((found, abbr) => found || (STATE_MAP[abbr].toUpperCase() === stateUpper ? STATE_MAP[abbr] : null), null) || s;
         const stateAbbrev = STATE_ABBREV[fullState] || s;
         const key = fullState + '|' + payer;
-        const vol = volumeCol ? (parseInt(row[volumeCol]) || 1) : 1;
+        const parsed = volumeCol ? parseInt(row[volumeCol]) : NaN;
+        const vol = Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
         if (!planCounts[key]) planCounts[key] = { state: fullState, stateAbbrev, payer, count: 0 };
         planCounts[key].count += vol;
     });
