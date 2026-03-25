@@ -80,26 +80,62 @@ async function createClient() {
 async function viewMappings(name) {
     try {
         const mappings = await api.get('/admin/clients/' + encodeURIComponent(name) + '/mappings');
-        let html = '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">' +
-            '<div class="modal">' +
-            '<button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button>' +
-            '<h3>' + escapeHtml(name) + ' — ' + mappings.length + ' Mappings</h3>';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'modal-close';
+        closeBtn.textContent = '\u00d7';
+        closeBtn.addEventListener('click', () => overlay.remove());
+
+        const title = document.createElement('h3');
+        title.textContent = name + ' \u2014 ' + mappings.length + ' Mappings';
+
+        modal.appendChild(closeBtn);
+        modal.appendChild(title);
 
         if (mappings.length === 0) {
-            html += '<p style="color:var(--text-muted);">No mappings yet.</p>';
+            const empty = document.createElement('p');
+            empty.style.color = 'var(--text-muted)';
+            empty.textContent = 'No mappings yet.';
+            modal.appendChild(empty);
         } else {
-            html += '<table class="mapping-detail-table"><thead><tr>' +
-                '<th>State</th><th>Plan Name</th><th>Payer ID</th><th>Payer Name</th>' +
-                '</tr></thead><tbody>';
-            mappings.forEach(m => {
-                html += '<tr><td>' + escapeHtml(m.state) + '</td><td>' + escapeHtml(m.planName) + '</td>' +
-                    '<td>' + escapeHtml(m.availityPayerId) + '</td>' +
-                    '<td>' + escapeHtml(m.availityPayerName) + '</td></tr>';
+            const table = document.createElement('table');
+            table.className = 'mapping-detail-table';
+
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            ['State', 'Plan Name', 'Payer ID', 'Payer Name'].forEach(label => {
+                const th = document.createElement('th');
+                th.textContent = label;
+                headerRow.appendChild(th);
             });
-            html += '</tbody></table>';
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            mappings.forEach(m => {
+                const tr = document.createElement('tr');
+                [m.state, m.planName, m.availityPayerId, m.availityPayerName].forEach(val => {
+                    const td = document.createElement('td');
+                    td.textContent = val ?? '';
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            modal.appendChild(table);
         }
-        html += '</div></div>';
-        document.body.insertAdjacentHTML('beforeend', html);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     } catch (e) {
         showToast('Error: ' + e.message, 'error');
     }

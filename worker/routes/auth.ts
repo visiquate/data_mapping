@@ -22,13 +22,18 @@ export async function handleAuthRoutes(request: Request, env: Env, path: string,
   return json({ error: 'Not found' }, 404);
 }
 
+// Fix 2: escape LIKE special characters to prevent wildcard injection
+function escapeLike(s: string): string {
+  return s.replace(/[%_\\]/g, '\\$&');
+}
+
 // Finding 2: check rate limit for an IP; returns true when the caller is blocked
 async function isRateLimited(env: Env, ip: string): Promise<boolean> {
   const row = await env.DB.prepare(
     `SELECT COUNT(*) as cnt FROM audit_log
      WHERE actor = 'anonymous' AND action = 'login_failed'
-       AND detail LIKE ? AND event_time > unixepoch() - ${RATE_LIMIT_WINDOW_SECONDS}`
-  ).bind(`%"ip":"${ip}"%`).first<{ cnt: number }>();
+       AND detail LIKE ? ESCAPE '\\' AND event_time > unixepoch() - ${RATE_LIMIT_WINDOW_SECONDS}`
+  ).bind(`%"ip":"${escapeLike(ip)}"%`).first<{ cnt: number }>();
   return (row?.cnt ?? 0) >= RATE_LIMIT_MAX_FAILURES;
 }
 
@@ -57,12 +62,13 @@ async function adminLogin(request: Request, env: Env): Promise<Response> {
 
   const row = await env.DB.prepare('SELECT passphrase_hash FROM admin_config WHERE id = 1').first<{ passphrase_hash: string }>();
 
-  // Finding 1b: use verifyPassphrase (supports both legacy SHA-256 and PBKDF2)
-  const valid = row ? await verifyPassphrase(body.passphrase, row.passphrase_hash) : false;
+  // Fix 3: always run verifyPassphrase to avoid timing oracle when row is null
+  const DUMMY_HASH = 'pbkdf2.210000.AAAAAAAAAAAAAAAAAAAAAA==.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+  const valid = await verifyPassphrase(body.passphrase, row?.passphrase_hash ?? DUMMY_HASH);
 
   if (!row || !valid) {
-    // Finding 2: audit failed login
-    await logFailedLogin(env, ip, 'admin');
+    // Finding 2: audit failed login; Fix 9: swallow DB errors so a write failure can't convert 401 to 500
+    await logFailedLogin(env, ip, 'admin').catch(() => {});
     return json({ error: 'Invalid credentials' }, 401);
   }
 
@@ -101,12 +107,13 @@ async function clientLogin(request: Request, env: Env): Promise<Response> {
     'SELECT id, client_name, passphrase_hash FROM clients WHERE client_name = ? COLLATE NOCASE'
   ).bind(clientName).first<{ id: number; client_name: string; passphrase_hash: string }>();
 
-  // Finding 1b: use verifyPassphrase; still call even when row is missing to avoid timing oracle
-  const valid = row ? await verifyPassphrase(body.passphrase, row.passphrase_hash) : false;
+  // Fix 3: always run verifyPassphrase against a dummy hash when row is null to keep timing constant
+  const DUMMY_HASH = 'pbkdf2.210000.AAAAAAAAAAAAAAAAAAAAAA==.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+  const valid = await verifyPassphrase(body.passphrase, row?.passphrase_hash ?? DUMMY_HASH);
 
   if (!row || !valid) {
-    // Finding 2: audit failed login
-    await logFailedLogin(env, ip, `client:${clientName}`);
+    // Finding 2: audit failed login; Fix 9: swallow DB errors so a write failure can't convert 401 to 500
+    await logFailedLogin(env, ip, `client:${clientName}`).catch(() => {});
     return json({ error: 'Invalid credentials' }, 401);
   }
 

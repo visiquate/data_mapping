@@ -206,9 +206,14 @@ export async function verifyPassphrase(text: string, stored: string): Promise<bo
     return diff === 0;
   }
 
-  // Legacy: plain SHA-256 hex
+  // Legacy: plain SHA-256 hex — constant-time comparison
   const legacyHash = await hashPassphraseLegacy(text);
-  return legacyHash === stored;
+  const a = new TextEncoder().encode(legacyHash);
+  const b = new TextEncoder().encode(stored);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
 }
 
 // Keep the original export name as an alias so any remaining callers don't break at compile time.

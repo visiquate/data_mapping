@@ -24,7 +24,7 @@ export async function handleAdminRoutes(request: Request, env: Env, path: string
       if (!validateClientName(name)) {
         return json({ error: 'Invalid client name' }, 400);
       }
-      return deleteClient(env, name);
+      return deleteClient(request, env, name);
     }
 
     // PATCH /api/v1/admin/clients/:name/passphrase
@@ -44,7 +44,7 @@ export async function handleAdminRoutes(request: Request, env: Env, path: string
       if (!validateClientName(name)) {
         return json({ error: 'Invalid client name' }, 400);
       }
-      return exportUiPath(env, name, payload.sub);
+      return exportUiPath(request, env, name, payload.sub);
     }
 
     // GET /api/v1/admin/clients/:name/mappings
@@ -54,12 +54,17 @@ export async function handleAdminRoutes(request: Request, env: Env, path: string
       if (!validateClientName(name)) {
         return json({ error: 'Invalid client name' }, 400);
       }
-      return getClientMappings(env, name, payload.sub);
+      return getClientMappings(request, env, name, payload.sub);
     }
 
     return json({ error: 'Not found' }, 404);
   } catch (error: unknown) {
     if (error instanceof AuthError) {
+      // Fix 5: audit log admin auth failures
+      const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+      await env.DB.prepare(
+        'INSERT INTO audit_log (actor, action, detail) VALUES (?, ?, ?)'
+      ).bind('anonymous', 'admin_auth_failed', JSON.stringify({ ip, path })).run().catch(() => {});
       return json({ error: error.message }, error.status);
     }
     throw error;
@@ -87,7 +92,7 @@ async function listClients(env: Env): Promise<Response> {
     mapped: row.mapped || 0,
     altPortal: row.alt_portal || 0,
     unmapped: row.unmapped || 0,
-    lastUpdated: row.last_updated ? new Date(row.last_updated * 1000).toISOString() : null,
+    lastUpdated: row.last_updated != null ? new Date(row.last_updated * 1000).toISOString() : null,
   }));
 
   return json(result);
@@ -125,21 +130,23 @@ async function createClient(request: Request, env: Env): Promise<Response> {
     'INSERT INTO clients (client_name, passphrase_hash) VALUES (?, ?)'
   ).bind(clientName, hash).run();
 
-  // Audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind('admin', 'client_created', clientName).run();
+  // Fix 6: include IP in audit log
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind('admin', 'client_created', clientName, JSON.stringify({ ip })).run();
 
   return json({ clientName }, 201);
 }
 
-async function deleteClient(env: Env, clientName: string): Promise<Response> {
+async function deleteClient(request: Request, env: Env, clientName: string): Promise<Response> {
   const result = await env.DB.prepare('DELETE FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).run();
 
   if (!result.meta.changes) {
     return json({ error: 'Client not found' }, 404);
   }
 
-  // Audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind('admin', 'client_deleted', clientName).run();
+  // Fix 6: include IP in audit log
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind('admin', 'client_deleted', clientName, JSON.stringify({ ip })).run();
 
   return new Response(null, { status: 204 });
 }
@@ -164,13 +171,14 @@ async function resetPassphrase(request: Request, env: Env, clientName: string): 
     return json({ error: 'Client not found' }, 404);
   }
 
-  // Audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind('admin', 'passphrase_reset', clientName).run();
+  // Fix 6: include IP in audit log
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind('admin', 'passphrase_reset', clientName, JSON.stringify({ ip })).run();
 
   return json({ ok: true });
 }
 
-async function getClientMappings(env: Env, clientName: string, actor: string): Promise<Response> {
+async function getClientMappings(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
   if (!client) {
     return json({ error: 'Client not found' }, 404);
@@ -180,8 +188,9 @@ async function getClientMappings(env: Env, clientName: string, actor: string): P
     'SELECT state_name, plan_name, availity_payer_id, availity_payer_name FROM payer_mappings WHERE client_id = ? ORDER BY state_name, plan_name'
   ).bind(client.id).all();
 
-  // Audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind(actor, 'admin_mappings_read', clientName).run();
+  // Fix 6: include IP in audit log
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'admin_mappings_read', clientName, JSON.stringify({ ip })).run();
 
   return json(rows.results.map((r: any) => ({
     state: r.state_name,
@@ -206,7 +215,7 @@ const PAGE_SCHEMA_DATA: Record<string, number> = {
   "A8822": 15, "UHC": 17,
 };
 
-async function exportUiPath(env: Env, clientName: string, actor: string): Promise<Response> {
+async function exportUiPath(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
   if (!client) {
     return json({ error: 'Client not found' }, 404);
@@ -216,8 +225,9 @@ async function exportUiPath(env: Env, clientName: string, actor: string): Promis
     'SELECT state_name, plan_name, availity_payer_id FROM payer_mappings WHERE client_id = ? AND availity_payer_id IS NOT NULL'
   ).bind(client.id).all();
 
-  // Audit log
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name) VALUES (?, ?, ?)').bind(actor, 'admin_uipath_export', clientName).run();
+  // Fix 6: include IP in audit log
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'admin_uipath_export', clientName, JSON.stringify({ ip })).run();
 
   // State name to abbreviation map
   const STATE_ABBREV: Record<string, string> = {

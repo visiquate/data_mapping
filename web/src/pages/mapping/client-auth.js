@@ -86,6 +86,7 @@ export function setupClientHandler() {
         try {
             const loginResult = await loginClient(name, passphrase);
             state.clientName = loginResult.clientName;
+            setStoredClientName(loginResult.clientName);
             state.clientAuthenticated = true;
             clientInput.value = state.clientName;
 
@@ -113,13 +114,21 @@ export function setupClientHandler() {
                 updateConnectionStatus('none');
                 showToast('Invalid credentials for ' + name + '. Check client name and passphrase.', 'error');
             } else {
-                // Offline fallback
-                state.clientName = name;
-                clientStatus.textContent = 'Working offline';
-                clientStatus.className = 'client-status new';
-                updateConnectionStatus('offline');
-                loadClientDataLocal(name);
-                showToast('Cannot reach server. Working offline with local data.', 'error');
+                const existingClient = sessionStorage.getItem('currentClient');
+                const existingToken = sessionStorage.getItem('authToken');
+                if (existingToken && existingClient && existingClient.toUpperCase() === name) {
+                    state.clientName = name;
+                    clientStatus.textContent = 'Working offline (cached session)';
+                    clientStatus.className = 'client-status new';
+                    updateConnectionStatus('offline');
+                    loadClientDataLocal(name);
+                    showToast('Server unreachable. Using cached data.', 'error');
+                } else {
+                    clientStatus.textContent = 'Cannot connect';
+                    clientStatus.className = 'client-status new';
+                    updateConnectionStatus('none');
+                    showToast('Cannot reach server. Please try again later.', 'error');
+                }
             }
         } finally {
             connecting = false;
