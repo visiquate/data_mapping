@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payer Mapping Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./src/css/variables.css">
+    <link rel="stylesheet" href="./src/css/base.css">
+    <link rel="stylesheet" href="./src/css/components.css">
+    <script>if(localStorage.getItem('darkMode')!=='false')document.documentElement.classList.add('dark');</script>
+</head>
+<body>
+    <button class="dark-mode-toggle" id="darkModeToggle" title="Toggle dark mode" aria-label="Toggle dark mode"></button>
+    <div class="container">
+        <h1>Payer Mapping Tool</h1>
+        <p class="subtitle">Map placement file plans to portal plan names</p>
+        <nav style="text-align: center; margin-bottom: 30px; font-size: 0.9em;">
+            <a href="phi_stripper.html">PHI Stripper</a> | <a href="admin.html">Admin</a> | <a href="docs/Payer Mapping Tool - User Guide.pdf" target="_blank">User Guide</a>
+        </nav>
+
+        <div class="card" style="background: var(--how-it-works-bg); border-left: 4px solid var(--how-it-works-border);">
+            <h2 style="margin-top: 0;">How It Works</h2>
+            <ol style="margin: 0; padding-left: 20px; color: var(--how-it-works-text); line-height: 1.8;">
+                <li>Use the <a href="phi_stripper.html" target="_blank" style="color: var(--link-color); font-weight: 500;">PHI Stripper Tool</a> to prepare your placement file (removes all PHI, keeps only State &amp; Payer)</li>
+                <li>Enter your client name below to save/resume your progress</li>
+                <li>Upload the stripped placement summary file</li>
+                <li>Map each plan to its corresponding Availity payer or portal</li>
+                <li><strong>Save Mapping Progress</strong> — export your work as Excel to pick up where you left off</li>
+                <li><strong>Export for UiPath</strong> — generate the JSON file for automation import</li>
+            </ol>
+            <p style="margin-top: 10px; margin-bottom: 0;"><a href="docs/Payer Mapping Tool - User Guide.pdf" target="_blank" style="color: var(--link-color); font-weight: 500;">📄 Download User Guide (PDF)</a></p>
+        </div>
+
+        <div class="card">
+            <h2>Client Setup</h2>
+            <div class="client-section" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" class="client-input" id="clientName" list="clientList" placeholder="Client name (e.g., UTSW)" style="flex: 1; min-width: 180px;" autocomplete="off">
+                <datalist id="clientList"></datalist>
+                <input type="password" class="client-input" id="clientPassphrase" placeholder="Passphrase" style="flex: 0.7; min-width: 140px;">
+                <button class="btn" id="connectBtn" style="background: var(--color-accent); color: white; white-space: nowrap;">Connect</button>
+                <span id="connectionStatus" style="font-size: 0.85em; white-space: nowrap;"></span>
+            </div>
+            <div class="client-section" style="margin-top: 8px;">
+                <span class="client-status hidden" id="clientStatus"></span>
+                <button class="btn btn-clear hidden" id="clearDataBtn">Clear Saved Data</button>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.85em;">Enter your client name and passphrase to connect to cloud storage. Mappings sync automatically across all browsers.</p>
+        </div>
+
+        <div class="card">
+            <h2>Step 1: Upload Files</h2>
+            <div class="upload-section">
+                <div class="upload-box" id="placementDropZone">
+                    <h3>Placement Summary File *</h3>
+                    <p style="color: var(--phi-warning-color); font-weight: bold; margin-bottom: 4px;">⚠ Do NOT upload raw placement files containing PHI.</p>
+                    <p style="margin-bottom: 4px;">Use the <a href="phi_stripper.html" target="_blank" style="color: var(--link-color); font-weight: 500;">PHI Stripper Tool</a> to prepare your file first.</p>
+                    <p>Upload your placement summary file (.xlsx or .csv)</p>
+                    <input type="file" id="placementFile" accept=".xlsx,.csv">
+                    <button class="upload-btn" onclick="document.getElementById('placementFile').click()">Choose File</button>
+                    <div class="file-name" id="placementFileName"></div>
+                </div>
+                <div class="upload-box" id="mappingDropZone">
+                    <h3>Previous Mapping (Optional)</h3>
+                    <p>Upload saved mapping (.xlsx/.json) or UiPath output (.json)</p>
+                    <input type="file" id="mappingFile" accept=".json,.xlsx">
+                    <button class="upload-btn" onclick="document.getElementById('mappingFile').click()">Choose File</button>
+                    <div class="file-name" id="mappingFileName"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card hidden" id="statsSection">
+            <h2>Mapping Progress</h2>
+            <div class="stats">
+                <div class="stat-box"><div class="number" id="totalPlans">0</div><div class="label">Total Plans</div></div>
+                <div class="stat-box"><div class="number" id="mappedPlans" style="color: #27ae60;">0</div><div class="label">Mapped</div></div>
+                <div class="stat-box"><div class="number" id="altPortalPlans" style="color: var(--color-accent);">0</div><div class="label">Not In Availity</div></div>
+                <div class="stat-box"><div class="number" id="unmappedPlans">0</div><div class="label">Unmapped</div></div>
+                <div class="stat-box"><div class="number" id="totalStates">0</div><div class="label">States</div></div>
+            </div>
+            <div class="progress-bar" style="position: relative;">
+                <div class="progress-fill" id="progressFill" style="width: 0%; position: absolute; left: 0; top: 0;"></div>
+                <div id="altProgressFill" style="width: 0%; height: 100%; background: var(--color-accent); opacity: 0.7; position: absolute; left: 0; top: 0; transition: all 0.3s;"></div>
+            </div>
+            <div class="progress-text" id="progressText">0% Complete</div>
+        </div>
+
+        <div class="card hidden" id="mappingSection">
+            <h2>Step 2: Map Payers</h2>
+            <input type="text" class="search-box" id="searchBox" placeholder="Search plans...">
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="mapped">Mapped</button>
+                <button class="filter-btn" data-filter="altportal">Not In Availity</button>
+                <button class="filter-btn" data-filter="unmapped">Unmapped</button>
+            </div>
+            <div id="mappingContent"></div>
+        </div>
+
+        <div class="card hidden" id="actionsSection">
+            <h2>Step 3: Export</h2>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
+                <div class="action-buttons" style="margin-top: 0;">
+                    <button class="btn btn-secondary" id="saveMappingBtn">Save Mapping Progress</button>
+                    <button class="btn btn-success" id="exportJsonBtn">Export for UiPath (.json)</button>
+                </div>
+                <div class="upload-box" id="schemaDropZone" style="border-width: 1px; padding: 15px; min-width: 250px;">
+                    <h3 style="font-size: 0.9em;">Update Page Schema (Optional)</h3>
+                    <p style="font-size: 0.8em;">Upload new schema mapping (.json)</p>
+                    <input type="file" id="schemaFile" accept=".json">
+                    <button class="upload-btn" style="padding: 6px 12px; font-size: 0.8em;" onclick="document.getElementById('schemaFile').click()">Choose File</button>
+                    <div class="file-name" id="schemaFileName" style="font-size: 0.8em;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
+        Payer Mapping Tool v6.0
+    </footer>
+
+    <div class="toast" id="toast"></div>
+    <div class="auto-save-indicator" id="autoSaveIndicator">Mappings saved</div>
+
+    <script type="module" src="./src/pages/mapping/index.js"></script>
+</body>
+</html>

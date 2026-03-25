@@ -1,27 +1,29 @@
 {
-  "name": "data_mapping",
-  "version": "1.0.0",
-  "description": "A data mapping project.",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "name": "payer-mapping-tool",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "concurrently \"wrangler dev\" \"vite --config vite.config.ts\"",
+    "dev:worker": "wrangler dev",
+    "dev:web": "vite --config vite.config.ts",
+    "build": "vite build --config vite.config.ts",
+    "preview": "vite preview --config vite.config.ts",
+    "deploy:worker": "wrangler deploy",
+    "deploy:pages": "wrangler pages deploy dist --project-name=payer-mapping-tool",
+    "deploy": "npm run build && npm run deploy:worker && npm run deploy:pages",
+    "convert-payers": "node scripts/convert_payers.js",
+    "db:init": "wrangler d1 execute payer-mapping-db --local --file=worker/migrations/0001_initial.sql",
+    "db:seed": "node scripts/seed_payers.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kellmat74/data_mapping.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/kellmat74/data_mapping/issues"
-  },
-  "homepage": "https://github.com/kellmat74/data_mapping#readme",
   "dependencies": {
-    "puppeteer": "^24.32.0"
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "vite": "^6.0.0",
+    "wrangler": "^3.90.0",
+    "typescript": "^5.6.0",
+    "@cloudflare/workers-types": "^4.20241106.0"
   }
 }

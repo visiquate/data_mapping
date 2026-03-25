@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payer Mapping Tool — Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./src/css/variables.css">
+    <link rel="stylesheet" href="./src/css/base.css">
+    <link rel="stylesheet" href="./src/css/components.css">
+    <script>if(localStorage.getItem('darkMode')!=='false')document.documentElement.classList.add('dark');</script>
+</head>
+<body>
+    <button class="dark-mode-toggle" id="darkModeToggle" title="Toggle dark mode" aria-label="Toggle dark mode"></button>
+    <div class="container">
+        <h1>Payer Mapping Tool — Admin</h1>
+        <nav><a href="index.html">Mapping Tool</a> | <a href="phi_stripper.html">PHI Stripper</a> | <a href="docs/Payer Mapping Tool - Admin Guide.pdf" target="_blank">Admin Guide</a></nav>
+
+        <!-- Login -->
+        <div id="loginSection">
+            <div class="login-form card">
+                <h2>Admin Login</h2>
+                <input type="password" id="adminPassphrase" placeholder="Enter admin passphrase">
+                <br>
+                <button class="btn btn-primary" id="loginBtn">Login</button>
+            </div>
+        </div>
+
+        <!-- Dashboard (hidden until login) -->
+        <div id="dashboardSection" class="hidden">
+
+            <!-- Create Client -->
+            <div class="card">
+                <h2>Create New Client</h2>
+                <div class="create-form">
+                    <input type="text" id="newClientName" placeholder="Client name (e.g., UTSW)">
+                    <input type="password" id="newClientPassphrase" placeholder="Client passphrase">
+                    <button class="btn btn-success" id="createClientBtn">Create Client</button>
+                </div>
+            </div>
+
+            <!-- Download Standalone Tool -->
+            <div class="card">
+                <h2>Download Standalone Tool</h2>
+                <p style="color: var(--text-muted); margin-bottom: 15px;">Generate a self-contained version of the Mapping Tool for users who cannot access the hosted site. Availity payer data is embedded for offline use.</p>
+                <button class="btn btn-primary" id="downloadStandaloneBtn">Download Standalone HTML</button>
+                <span id="standaloneStatus" style="margin-left: 15px; color: var(--text-muted);"></span>
+            </div>
+
+            <!-- Client List -->
+            <div class="card">
+                <h2>Clients</h2>
+                <div id="clientListContainer">
+                    <p style="color: var(--text-muted);">Loading clients...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script type="module" src="./src/pages/admin/index.js"></script>
+
+    <footer style="text-align: center; color: var(--footer-color); font-size: 0.8em; margin-top: 40px; padding: 20px;">
+        Payer Mapping Tool — Admin Dashboard v6.0
+    </footer>
+</body>
+</html>

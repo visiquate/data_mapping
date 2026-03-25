@@ -17,3 +17,11 @@ venv/
 # Node
 node_modules/
 package-lock.json
+
+# Cloudflare
+.wrangler/
+.dev.vars
+dist/
+
+# Generated
+worker/payers.json

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Placement File PHI Stripper</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./src/css/variables.css">
+    <link rel="stylesheet" href="./src/css/base.css">
+    <link rel="stylesheet" href="./src/css/components.css">
+    <script>if(localStorage.getItem('darkMode')!=='false')document.documentElement.classList.add('dark');</script>
+    <style>
+        .container { max-width: 800px; }
+    </style>
+</head>
+<body>
+    <button class="dark-mode-toggle" id="darkModeToggle" title="Toggle dark mode" aria-label="Toggle dark mode"></button>
+    <div class="container">
+        <h1>Placement File PHI Stripper</h1>
+        <p class="subtitle">Prepare your placement file for the Payer Mapping Tool by removing all PHI</p>
+
+        <div class="privacy-banner">
+            <strong>100% Local Processing — No Data Leaves Your Computer</strong>
+            <p>This tool runs entirely in your browser. Your placement file is never uploaded or transmitted anywhere.</p>
+        </div>
+
+        <div class="card">
+            <h2>Upload Placement File</h2>
+            <div class="upload-box" id="dropZone">
+                <p>Upload your standard placement file (.xlsx or .csv)</p>
+                <p>Only the <strong>State</strong> and <strong>Payer 1</strong> columns will be kept. All other data is discarded.</p>
+                <input type="file" id="fileInput" accept=".xlsx,.csv">
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">Choose File</button>
+                <div class="file-name hidden" id="fileName"></div>
+            </div>
+
+            <div class="hidden" id="resultsSection">
+                <div class="results">
+                    <p><span class="label">Original rows: </span><span class="value" id="originalRows"></span></p>
+                    <p><span class="label">Original columns: </span><span class="value" id="originalCols"></span></p>
+                    <p><span class="label">Columns removed: </span><span class="value" id="removedCols"></span></p>
+                    <p><span class="label">Unique plans (output rows): </span><span class="value" id="outputRows"></span></p>
+                    <p><span class="label">States found: </span><span class="value" id="statesFound"></span></p>
+                </div>
+
+                <div class="warning" id="warningSection" style="display:none;"></div>
+
+                <h3 style="margin-top: 15px; font-size: 1em; color: var(--text-heading-h);">Preview (first 10 rows)</h3>
+                <table class="preview-table" id="previewTable">
+                    <thead><tr><th>State</th><th>Payer1</th><th>Volume</th></tr></thead>
+                    <tbody id="previewBody"></tbody>
+                </table>
+
+                <button class="btn" id="downloadBtn" onclick="downloadCleanFile()">Download Clean File (.xlsx)</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>How It Works</h2>
+            <ol style="padding-left: 20px; color: var(--how-it-works-text); font-size: 0.9em; line-height: 2;">
+                <li>Upload your standard placement file</li>
+                <li>The tool finds the <strong>State</strong> and <strong>Payer 1</strong> columns and discards everything else</li>
+                <li>Rows are aggregated into unique (State, Plan) combinations with a volume count</li>
+                <li>Download the clean file and upload it to the <a href="index.html" style="color: var(--link-color);">Payer Mapping Tool</a></li>
+            </ol>
+        </div>
+
+        <div class="footer">Placement File PHI Stripper v5.17</div>
+    </div>
+
+    <div id="toast" style="position:fixed;bottom:20px;right:20px;background:var(--toast-bg);color:white;padding:15px 25px;border-radius:8px;box-shadow:0 4px 12px var(--shadow-strong);transform:translateY(100px);opacity:0;transition:all 0.3s;z-index:1000;"></div>
+
+    <script type="module" src="./src/pages/phi-stripper/index.js"></script>
+</body>
+</html>
