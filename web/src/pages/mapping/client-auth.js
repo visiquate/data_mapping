@@ -62,8 +62,17 @@ export function setupClientHandler() {
             renderMappingInterface();
             updateStats();
         } catch (e) {
-            // Token expired, need to re-login
+            // Session expired or access denied — clear stale session and reset to login form
+            sessionStorage.removeItem('currentClient');
+            sessionStorage.removeItem('authToken');
+            state.clientAuthenticated = false;
+            state.clientName = '';
+            clientInput.value = '';
+            passphraseInput.value = '';
             updateConnectionStatus('none');
+            clientStatus.textContent = 'Session expired — please log in again';
+            clientStatus.className = 'client-status new';
+            clientStatus.classList.remove('hidden');
         }
     }
 
@@ -118,7 +127,15 @@ export function setupClientHandler() {
                 clientStatus.className = 'client-status new';
                 updateConnectionStatus('none');
                 showToast('Invalid credentials for ' + name + '. Check client name and passphrase.', 'error');
-            } else {
+            } else if (e.message.includes('Session expired') || e.message.includes('Access denied')) {
+                sessionStorage.removeItem('currentClient');
+                sessionStorage.removeItem('authToken');
+                clientStatus.textContent = 'Session expired — please try again';
+                clientStatus.className = 'client-status new';
+                updateConnectionStatus('none');
+                showToast('Session expired. Please connect again.', 'error');
+            } else if (e instanceof TypeError || e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+                // Actual network failure — offer offline mode if cached session exists
                 const existingClient = sessionStorage.getItem('currentClient');
                 const existingToken = sessionStorage.getItem('authToken');
                 if (existingToken && existingClient && existingClient.toUpperCase() === name) {
@@ -129,11 +146,16 @@ export function setupClientHandler() {
                     loadClientDataLocal(name);
                     showToast('Server unreachable. Using cached data.', 'error');
                 } else {
-                    clientStatus.textContent = 'Cannot connect';
+                    clientStatus.textContent = 'Cannot connect — server unreachable';
                     clientStatus.className = 'client-status new';
                     updateConnectionStatus('none');
                     showToast('Cannot reach server. Please try again later.', 'error');
                 }
+            } else {
+                clientStatus.textContent = 'Connection error';
+                clientStatus.className = 'client-status new';
+                updateConnectionStatus('none');
+                showToast(e.message || 'Connection failed. Please try again.', 'error');
             }
         } finally {
             connecting = false;

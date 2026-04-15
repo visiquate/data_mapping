@@ -39,6 +39,16 @@ async function request(path, options = {}) {
         throw new Error(body.error || 'Invalid credentials');
     }
 
+    if (response.status === 403) {
+        // Access denied — token may be for a different client, or session is invalid
+        if (!path.startsWith('/auth/')) {
+            clearToken();
+            throw new Error('Session expired. Please log in again.');
+        }
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Access denied');
+    }
+
     if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || 'Request failed: ' + response.status);
