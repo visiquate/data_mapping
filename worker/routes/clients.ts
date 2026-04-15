@@ -28,7 +28,8 @@ export async function handleClientRoutes(request: Request, env: Env, path: strin
     const payload = await requireAuth(request, env, 'client');
 
     // Clients can only access their own data (admins can access any)
-    if (payload.role === 'client' && payload.sub !== clientName) {
+    // Case-insensitive comparison: payload.sub preserves DB casing, clientName is uppercased
+    if (payload.role === 'client' && payload.sub.toUpperCase() !== clientName) {
       return json({ error: 'Access denied' }, 403);
     }
 
