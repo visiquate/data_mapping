@@ -87,6 +87,7 @@ function readFileAsArray(file) {
 
 /**
  * Handle mapping file upload (previous mappings or UiPath output)
+ * Merges with existing mappings when connected to a client; replaces when starting fresh.
  * @param {Event} e - The change event
  */
 async function handleMappingFile(e) {
@@ -96,38 +97,108 @@ async function handleMappingFile(e) {
     document.getElementById('mappingFileName').textContent = file.name;
     document.getElementById('mappingDropZone').classList.add('has-file');
     try {
+        let incomingMappings;
+        let fileType;
+
         if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
             const data = await file.arrayBuffer();
             const wb = XLSX.read(data);
             const ws = wb.Sheets[wb.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(ws);
-            const mappings = {};
+            incomingMappings = {};
             rows.forEach(row => {
                 const s = row['State'];
                 const p = row['Plan Name'];
                 if (s && p) {
-                    mappings[s + '|' + p] = { availityPayerId: row['Payer ID'] || '', availityPayerName: row['Payer Name'] || '' };
+                    incomingMappings[s + '|' + p] = { availityPayerId: row['Payer ID'] || '', availityPayerName: row['Payer Name'] || '' };
                 }
             });
-            state.currentMappings = mappings;
-            showToast('Loaded ' + Object.keys(state.currentMappings).length + ' mappings from Excel file', 'success');
+            fileType = 'Excel';
         } else {
             const text = await file.text();
             const mappingData = JSON.parse(text);
             if (Array.isArray(mappingData)) {
-                state.currentMappings = convertUiPathToMappings(mappingData);
-                showToast('Loaded ' + Object.keys(state.currentMappings).length + ' mappings from UiPath file', 'success');
+                incomingMappings = convertUiPathToMappings(mappingData);
+                fileType = 'UiPath';
             } else {
-                state.currentMappings = mappingData.mappings || {};
-                showToast('Loaded ' + Object.keys(state.currentMappings).length + ' mappings', 'success');
+                incomingMappings = mappingData.mappings || {};
+                fileType = 'mapping';
             }
         }
+
+        // Merge with existing mappings if we have them, otherwise replace
+        const existingCount = Object.keys(state.currentMappings).length;
+        if (existingCount > 0) {
+            const { merged, added, kept } = mergeMappings(state.currentMappings, incomingMappings);
+            state.currentMappings = merged;
+            showToast('Merged ' + fileType + ' file: ' + added + ' new mappings added, ' + kept + ' existing kept', 'success');
+        } else {
+            state.currentMappings = incomingMappings;
+            showToast('Loaded ' + Object.keys(state.currentMappings).length + ' mappings from ' + fileType + ' file', 'success');
+        }
+
+        // Ensure all mapped plans appear in the UI
+        addMissingPlansToState();
         if (Object.keys(state.plansByState).length === 0) {
             buildPlansFromMappings();
         } else {
-            applyMappingsToInterface();
+            renderMappingInterface();
+            updateStats();
         }
+
+        // Save merged result to cloud if authenticated
+        autoSave();
     } catch (error) { showToast('Error: ' + error.message, 'error'); }
+}
+
+/**
+ * Merge incoming mappings into existing mappings
+ * New keys are added; existing mapped keys are preserved (DB is source of truth)
+ * @param {Object} existing - Current mappings from DB/session
+ * @param {Object} incoming - Imported mappings to merge in
+ * @returns {{ merged: Object, added: number, kept: number }}
+ */
+function mergeMappings(existing, incoming) {
+    const merged = { ...existing };
+    let added = 0;
+    let kept = 0;
+
+    for (const [key, value] of Object.entries(incoming)) {
+        if (!merged[key] || !merged[key].availityPayerId) {
+            // New or unmapped — add from import
+            merged[key] = value;
+            added++;
+        } else {
+            // Already mapped — keep existing
+            kept++;
+        }
+    }
+
+    return { merged, added, kept };
+}
+
+/**
+ * Add plans from currentMappings that aren't yet in plansByState
+ * Ensures newly merged plans appear in the UI without losing placement data
+ */
+function addMissingPlansToState() {
+    const state = getState();
+    Object.entries(state.currentMappings).forEach(([key]) => {
+        const sep = key.indexOf('|');
+        if (sep === -1) return;
+        const st = key.slice(0, sep);
+        const planName = key.slice(sep + 1);
+        if (!st || !planName) return;
+        if (!state.plansByState[st]) state.plansByState[st] = [];
+        const exists = state.plansByState[st].some(p => p.planName === planName);
+        if (!exists) {
+            const stateAbbrev = STATE_ABBREV[st] || st;
+            state.plansByState[st].push({ planName, stateAbbrev, volume: null });
+        }
+    });
+    Object.keys(state.plansByState).forEach(st => {
+        state.plansByState[st].sort((a, b) => a.planName.localeCompare(b.planName));
+    });
 }
 
 /**
