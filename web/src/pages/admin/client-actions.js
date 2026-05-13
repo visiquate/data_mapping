@@ -26,6 +26,9 @@ export function setupClientActions() {
     // Download standalone
     document.getElementById('downloadStandaloneBtn').addEventListener('click', downloadStandalone);
 
+    // Normalize whitespace across all mappings
+    document.getElementById('normalizeMappingsBtn').addEventListener('click', normalizeAllMappings);
+
     // Event delegation for client table actions
     document.getElementById('clientListContainer').addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-action]');
@@ -252,6 +255,34 @@ async function resetPassphrase(name) {
         showToast('Passphrase reset for ' + name, 'success');
     } catch (e) {
         showToast('Error: ' + e.message, 'error');
+    }
+}
+
+/**
+ * Triggers the worker normalize-mappings endpoint to clean up whitespace
+ * in plan_name, state_name, and availity_payer_name across all clients.
+ * Idempotent — running multiple times is safe.
+ */
+async function normalizeAllMappings() {
+    if (!confirm('Normalize whitespace across ALL client mappings?\n\nThis trims leading/trailing spaces from state names, plan names, and payer names.\nIf trimming causes duplicates within a client/state, the most recently updated row wins.\n\nThis is safe to run multiple times.')) return;
+    const status = document.getElementById('normalizeStatus');
+    const btn = document.getElementById('normalizeMappingsBtn');
+    status.textContent = 'Normalizing...';
+    btn.disabled = true;
+    try {
+        const result = await api.post('/admin/normalize-mappings', {});
+        const msg = result.totalRows + ' rows scanned. '
+            + result.rowsTrimmed + ' trimmed, '
+            + result.rowsDeleted + ' duplicates removed across '
+            + result.clientsAffected + ' clients.';
+        status.textContent = msg;
+        showToast('Normalization complete: ' + msg, 'success');
+        loadClients();
+    } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+        showToast('Normalize failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
     }
 }
 
