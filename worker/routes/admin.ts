@@ -57,6 +57,11 @@ export async function handleAdminRoutes(request: Request, env: Env, path: string
       return getClientMappings(request, env, name, payload.sub);
     }
 
+    // POST /api/v1/admin/normalize-mappings — one-time/idempotent cleanup of whitespace
+    if (path === '/api/v1/admin/normalize-mappings' && method === 'POST') {
+      return normalizeAllMappings(request, env, payload.sub);
+    }
+
     return json({ error: 'Not found' }, 404);
   } catch (error: unknown) {
     if (error instanceof AuthError) {
@@ -284,5 +289,124 @@ async function exportUiPath(request: Request, env: Env, clientName: string, acto
       'Content-Type': 'application/json',
       'Content-Disposition': `attachment; filename="${clientName}_uipath.json"`,
     },
+  });
+}
+
+/**
+ * Normalize whitespace in all payer_mappings rows across every client.
+ * Trims leading/trailing whitespace from state_name, plan_name, and availity_payer_name.
+ * If trimming causes a collision (e.g., "AETNA" and "AETNA " for same client/state),
+ * keeps the row with the most recent updated_at and deletes the others.
+ * Idempotent — safe to call multiple times.
+ */
+async function normalizeAllMappings(request: Request, env: Env, actor: string): Promise<Response> {
+  const rows = await env.DB.prepare(
+    'SELECT id, client_id, state_name, plan_name, availity_payer_id, availity_payer_name, updated_at FROM payer_mappings'
+  ).all();
+
+  type Row = {
+    id: number;
+    client_id: number;
+    state_name: string;
+    plan_name: string;
+    availity_payer_id: string | null;
+    availity_payer_name: string | null;
+    updated_at: number | null;
+  };
+
+  // Group by normalized key (client_id|trimmedState|trimmedPlan) to find collisions
+  const groups: Map<string, Row[]> = new Map();
+  for (const raw of rows.results) {
+    const r = raw as any as Row;
+    const trimmedState = (r.state_name ?? '').trim();
+    const trimmedPlan = (r.plan_name ?? '').trim();
+    const key = r.client_id + '|' + trimmedState + '|' + trimmedPlan;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+
+  const idsToDelete: number[] = [];
+  const rowsToUpdate: { id: number; state_name: string; plan_name: string; availity_payer_name: string | null }[] = [];
+  let collisionsResolved = 0;
+  const affectedClientIds = new Set<number>();
+
+  for (const [, group] of groups) {
+    // Pick winner: highest updated_at; ties broken by highest id
+    group.sort((a, b) => {
+      const au = a.updated_at ?? 0;
+      const bu = b.updated_at ?? 0;
+      if (au !== bu) return bu - au;
+      return b.id - a.id;
+    });
+    const winner = group[0];
+    const losers = group.slice(1);
+
+    if (losers.length > 0) {
+      collisionsResolved += losers.length;
+      for (const loser of losers) {
+        idsToDelete.push(loser.id);
+        affectedClientIds.add(loser.client_id);
+      }
+    }
+
+    const trimmedState = (winner.state_name ?? '').trim();
+    const trimmedPlan = (winner.plan_name ?? '').trim();
+    const trimmedPayerName = winner.availity_payer_name != null ? winner.availity_payer_name.trim() : null;
+
+    const stateChanged = trimmedState !== winner.state_name;
+    const planChanged = trimmedPlan !== winner.plan_name;
+    const payerNameChanged = trimmedPayerName !== winner.availity_payer_name;
+
+    if (stateChanged || planChanged || payerNameChanged) {
+      rowsToUpdate.push({
+        id: winner.id,
+        state_name: trimmedState,
+        plan_name: trimmedPlan,
+        availity_payer_name: trimmedPayerName,
+      });
+      affectedClientIds.add(winner.client_id);
+    }
+  }
+
+  // Apply changes in batches (D1 limit: 100 statements per batch)
+  const BATCH_SIZE = 100;
+
+  for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
+    const batch = idsToDelete.slice(i, i + BATCH_SIZE);
+    const stmts = batch.map(id => env.DB.prepare('DELETE FROM payer_mappings WHERE id = ?').bind(id));
+    if (stmts.length > 0) await env.DB.batch(stmts);
+  }
+
+  for (let i = 0; i < rowsToUpdate.length; i += BATCH_SIZE) {
+    const batch = rowsToUpdate.slice(i, i + BATCH_SIZE);
+    const stmts = batch.map(u =>
+      env.DB.prepare('UPDATE payer_mappings SET state_name = ?, plan_name = ?, availity_payer_name = ? WHERE id = ?')
+        .bind(u.state_name, u.plan_name, u.availity_payer_name, u.id)
+    );
+    if (stmts.length > 0) await env.DB.batch(stmts);
+  }
+
+  // Audit log
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, detail) VALUES (?, ?, ?)').bind(
+    actor,
+    'mappings_normalized',
+    JSON.stringify({
+      ip,
+      totalRows: rows.results.length,
+      rowsTrimmed: rowsToUpdate.length,
+      rowsDeleted: idsToDelete.length,
+      collisionsResolved,
+      clientsAffected: affectedClientIds.size,
+    })
+  ).run();
+
+  return json({
+    ok: true,
+    totalRows: rows.results.length,
+    rowsTrimmed: rowsToUpdate.length,
+    rowsDeleted: idsToDelete.length,
+    collisionsResolved,
+    clientsAffected: affectedClientIds.size,
   });
 }

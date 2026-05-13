@@ -47,6 +47,14 @@
                 <span id="standaloneStatus" style="margin-left: 15px; color: var(--text-muted);"></span>
             </div>
 
+            <!-- Data Maintenance -->
+            <div class="card">
+                <h2>Data Maintenance</h2>
+                <p style="color: var(--text-muted); margin-bottom: 15px;">Normalize whitespace across all client mappings. Trims leading/trailing spaces from state names, plan names, and payer names. If trimming causes duplicates within a client/state, the most recently updated row wins.</p>
+                <button class="btn btn-primary" id="normalizeMappingsBtn">Normalize All Mappings</button>
+                <span id="normalizeStatus" style="margin-left: 15px; color: var(--text-muted);"></span>
+            </div>
+
             <!-- Client List -->
             <div class="card">
                 <h2>Clients</h2>

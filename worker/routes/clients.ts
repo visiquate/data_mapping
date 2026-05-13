@@ -103,13 +103,21 @@ async function putMappings(request: Request, env: Env, clientName: string, actor
   }
 
   // Finding 6: validate all keys upfront — each key must contain '|' with a non-empty part before it
+  // Also normalize whitespace: trim state_name, plan_name, and availity_payer_name on every insert
+  // so the DB never accumulates dirty data from upstream sources.
+  const normalized: { stateName: string; planName: string; payerId: string | null; payerName: string | null }[] = [];
+  const seenKeys = new Set<string>();
+
   for (const [key, val] of entries) {
     const pipeIndex = key.indexOf('|');
     if (pipeIndex === -1 || pipeIndex === 0) {
       return json({ error: `Invalid mapping key "${key}": must be in "StateName|PlanName" format with a non-empty state name before the pipe` }, 400);
     }
-    const stateName = key.slice(0, pipeIndex);
-    const planName = key.slice(pipeIndex + 1);
+    const stateName = key.slice(0, pipeIndex).trim();
+    const planName = key.slice(pipeIndex + 1).trim();
+    if (stateName.length === 0) {
+      return json({ error: `Invalid mapping key "${key}": state_name cannot be empty after trim` }, 400);
+    }
     if (planName.length === 0) {
       return json({ error: `Invalid mapping key: plan_name cannot be empty` }, 400);
     }
@@ -119,11 +127,24 @@ async function putMappings(request: Request, env: Env, clientName: string, actor
     if (planName.length > MAX_STATE_PLAN_NAME_LEN) {
       return json({ error: `plan_name exceeds ${MAX_STATE_PLAN_NAME_LEN} characters` }, 400);
     }
-    if (val.availityPayerName && val.availityPayerName.length > MAX_PAYER_NAME_LEN) {
+    const payerName = val.availityPayerName ? val.availityPayerName.trim() : null;
+    const payerId = val.availityPayerId ? val.availityPayerId.trim() : null;
+    if (payerName && payerName.length > MAX_PAYER_NAME_LEN) {
       return json({ error: `availity_payer_name exceeds ${MAX_PAYER_NAME_LEN} characters` }, 400);
     }
-    if (val.availityPayerId && val.availityPayerId.length > MAX_PAYER_ID_LEN) {
+    if (payerId && payerId.length > MAX_PAYER_ID_LEN) {
       return json({ error: `availity_payer_id exceeds ${MAX_PAYER_ID_LEN} characters` }, 400);
+    }
+
+    // De-dupe: if trimming caused a collision within this payload, last write wins
+    const normKey = stateName + '|' + planName;
+    if (seenKeys.has(normKey)) {
+      // Replace prior occurrence
+      const idx = normalized.findIndex(n => n.stateName + '|' + n.planName === normKey);
+      if (idx >= 0) normalized[idx] = { stateName, planName, payerId, payerName };
+    } else {
+      seenKeys.add(normKey);
+      normalized.push({ stateName, planName, payerId, payerName });
     }
   }
 
@@ -134,15 +155,12 @@ async function putMappings(request: Request, env: Env, clientName: string, actor
   const batchSize = 100;
   let insertedCount = 0;
 
-  for (let i = 0; i < entries.length; i += batchSize) {
-    const batch = entries.slice(i, i + batchSize);
-    const statements = batch.map(([key, val]) => {
-      const pipeIndex = key.indexOf('|');
-      const stateName = key.slice(0, pipeIndex);
-      const planName = key.slice(pipeIndex + 1);
+  for (let i = 0; i < normalized.length; i += batchSize) {
+    const batch = normalized.slice(i, i + batchSize);
+    const statements = batch.map(n => {
       return env.DB.prepare(
         'INSERT INTO payer_mappings (client_id, state_name, plan_name, availity_payer_id, availity_payer_name, updated_at) VALUES (?, ?, ?, ?, ?, unixepoch())'
-      ).bind(client.id, stateName, planName, val.availityPayerId || null, val.availityPayerName || null);
+      ).bind(client.id, n.stateName, n.planName, n.payerId, n.payerName);
     });
 
     if (statements.length > 0) {

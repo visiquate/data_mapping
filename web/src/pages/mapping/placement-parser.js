@@ -107,10 +107,13 @@ async function handleMappingFile(e) {
             const rows = XLSX.utils.sheet_to_json(ws);
             incomingMappings = {};
             rows.forEach(row => {
-                const s = row['State'];
-                const p = row['Plan Name'];
+                const s = row['State'] != null ? String(row['State']).trim() : '';
+                const p = row['Plan Name'] != null ? String(row['Plan Name']).trim() : '';
                 if (s && p) {
-                    incomingMappings[s + '|' + p] = { availityPayerId: row['Payer ID'] || '', availityPayerName: row['Payer Name'] || '' };
+                    incomingMappings[s + '|' + p] = {
+                        availityPayerId: row['Payer ID'] != null ? String(row['Payer ID']).trim() : '',
+                        availityPayerName: row['Payer Name'] != null ? String(row['Payer Name']).trim() : ''
+                    };
                 }
             });
             fileType = 'Excel';
@@ -121,7 +124,20 @@ async function handleMappingFile(e) {
                 incomingMappings = convertUiPathToMappings(mappingData);
                 fileType = 'UiPath';
             } else {
-                incomingMappings = mappingData.mappings || {};
+                // Raw mapping JSON — trim keys and values defensively
+                const rawMappings = mappingData.mappings || {};
+                incomingMappings = {};
+                Object.entries(rawMappings).forEach(([key, val]) => {
+                    const sep = key.indexOf('|');
+                    if (sep === -1) return;
+                    const s = key.slice(0, sep).trim();
+                    const p = key.slice(sep + 1).trim();
+                    if (!s || !p) return;
+                    incomingMappings[s + '|' + p] = {
+                        availityPayerId: val && val.availityPayerId ? String(val.availityPayerId).trim() : '',
+                        availityPayerName: val && val.availityPayerName ? String(val.availityPayerName).trim() : ''
+                    };
+                });
                 fileType = 'mapping';
             }
         }
@@ -336,7 +352,8 @@ function exportForUiPath() {
             if (!outputByPayerState[key]) {
                 outputByPayerState[key] = { LocationCode: stateAbbrev, AvailityPayerID: payerId, ClaimDataPageLayoutType: schemas[payerId] !== undefined ? schemas[payerId] : 1, Queues: [] };
             }
-            const queueName = plan.planName + ', ' + stateAbbrev;
+            // Defensive trim: queue name must be exactly "{PayerName}, {State}" with no extra spaces
+            const queueName = String(plan.planName).trim() + ', ' + String(stateAbbrev).trim();
             if (!outputByPayerState[key].Queues.includes(queueName)) outputByPayerState[key].Queues.push(queueName);
         });
     });
