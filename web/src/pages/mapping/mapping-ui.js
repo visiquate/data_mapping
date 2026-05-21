@@ -175,8 +175,10 @@ function handlePayerSelection(e) {
     const selectedOption = select.options[select.selectedIndex];
     const payerName = selectedOption.dataset?.payerName || payerId;
 
+    // Persist all plans the user has seen — clearing a payer keeps the entry as unmapped
+    // (empty payer id) rather than deleting, so the plan remains tracked in the DB.
     if (payerId) state.currentMappings[mappingKey] = { availityPayerId: payerId, availityPayerName: payerName };
-    else delete state.currentMappings[mappingKey];
+    else state.currentMappings[mappingKey] = { availityPayerId: '', availityPayerName: '' };
 
     const row = select.closest('tr');
     row.classList.remove('mapped', 'unmapped', 'alt-portal');
