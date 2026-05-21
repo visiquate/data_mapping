@@ -100,11 +100,11 @@ async function handleMappingFile(e) {
         let incomingMappings;
         let fileType;
 
-        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-            const data = await file.arrayBuffer();
-            const wb = XLSX.read(data);
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(ws);
+        const lowerName = file.name.toLowerCase();
+        const isSpreadsheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || lowerName.endsWith('.csv');
+        if (isSpreadsheet) {
+            const data = await readFileAsArray(file);
+            const rows = readSpreadsheet(data, file.name);
             incomingMappings = {};
             rows.forEach(row => {
                 const s = row['State'] != null ? String(row['State']).trim() : '';
@@ -116,7 +116,7 @@ async function handleMappingFile(e) {
                     };
                 }
             });
-            fileType = 'Excel';
+            fileType = lowerName.endsWith('.csv') ? 'CSV' : 'Excel';
         } else {
             const text = await file.text();
             const mappingData = JSON.parse(text);
@@ -302,11 +302,30 @@ export function processPlacementData() {
         state.plansByState[st].sort((a, b) => b.volume - a.volume);
     });
 
+    // Seed currentMappings with empty entries for every plan in this placement file
+    // so unmapped plans persist to the DB (otherwise they'd disappear after save).
+    Object.entries(state.plansByState).forEach(([st, plans]) => {
+        plans.forEach(plan => {
+            const key = st + '|' + plan.planName;
+            if (!state.currentMappings[key]) {
+                state.currentMappings[key] = { availityPayerId: '', availityPayerName: '' };
+            }
+        });
+    });
+
+    // Surface any historical plans from currentMappings (e.g. from prior placement
+    // files or a State+PlanName import) that aren't in this placement file's plansByState.
+    addMissingPlansToState();
+
     document.getElementById('statsSection').classList.remove('hidden');
     document.getElementById('mappingSection').classList.remove('hidden');
     document.getElementById('actionsSection').classList.remove('hidden');
     renderMappingInterface();
     updateStats();
+
+    // Persist the union to the DB so the placement file's plans are tracked
+    // even if the user makes no mapping changes afterward.
+    autoSave();
 }
 
 /**
