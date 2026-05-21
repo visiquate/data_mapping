@@ -57,14 +57,16 @@
                     <p style="color: var(--phi-warning-color); font-weight: bold; margin-bottom: 4px;">⚠ Do NOT upload raw placement files containing PHI.</p>
                     <p style="margin-bottom: 4px;">Use the <a href="phi_stripper.html" target="_blank" style="color: var(--link-color); font-weight: 500;">PHI Stripper Tool</a> to prepare your file first.</p>
                     <p>Upload your placement summary file (.xlsx or .csv)</p>
+                    <p style="font-size: 0.85em; color: var(--text-muted); margin-top: 6px;">Required columns: <strong>State</strong>, <strong>Payer</strong> (or <strong>Payer1</strong>). Optional: <strong>Volume</strong>.</p>
                     <input type="file" id="placementFile" accept=".xlsx,.csv">
                     <button class="upload-btn" onclick="document.getElementById('placementFile').click()">Choose File</button>
                     <div class="file-name" id="placementFileName"></div>
                 </div>
                 <div class="upload-box" id="mappingDropZone">
                     <h3>Previous Mapping (Optional)</h3>
-                    <p>Upload saved mapping (.xlsx/.json) or UiPath output (.json)</p>
-                    <input type="file" id="mappingFile" accept=".json,.xlsx">
+                    <p>Upload saved mapping (.xlsx/.csv/.json) or UiPath output (.json)</p>
+                    <p style="font-size: 0.85em; color: var(--text-muted); margin-top: 6px;">Required columns: <strong>State</strong>, <strong>Plan Name</strong>. Optional: <strong>Payer ID</strong>, <strong>Payer Name</strong>.</p>
+                    <input type="file" id="mappingFile" accept=".json,.xlsx,.csv">
                     <button class="upload-btn" onclick="document.getElementById('mappingFile').click()">Choose File</button>
                     <div class="file-name" id="mappingFileName"></div>
                 </div>
