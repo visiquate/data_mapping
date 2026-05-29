@@ -1,0 +1,29 @@
+{
+  "name": "availity-scraper",
+  "version": "1.0.0",
+  "description": "Playwright script to scrape payer information from Availity by state",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "collect-tabs": "npm run build && node dist/collect-search-tabs.js",
+    "merge": "npm run build && node --max-old-space-size=8192 dist/merge-files.js",
+    "merge-csv": "npm run build && node dist/merge-to-csv.js"
+  },
+  "keywords": ["playwright", "scraper", "availity"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/prompts": "^2.4.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.1",
+    "exceljs": "^4.4.0",
+    "playwright": "^1.40.1",
+    "prompts": "^2.4.2"
+  }
+}
