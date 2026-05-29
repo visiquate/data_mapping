@@ -12,15 +12,19 @@ interface PayerRecord {
   url: string;
 }
 
-// Output record with search tab flags
+// Output record with search tab flags and version
 interface PayerWithTabs extends PayerRecord {
   searchTabs: string[];
+  claimStatusVersion: string;
   error?: string;
 }
 
 // Retry configuration
 const RETRY_DELAYS = [1000, 3000, 5000]; // Increasing delays for retries
 const MAX_RETRIES = 3;
+
+// Resume configuration - set to 0 to process all, or set to row number to skip
+const START_INDEX = 2516; // Start from row 2517 (0-indexed, so 2516 skips first 2516 records)
 
 // Store credentials for session recovery
 let storedUsername = '';
@@ -169,14 +173,51 @@ async function reAuthenticate(page: Page): Promise<boolean> {
   }
 }
 
-async function extractSearchTabs(page: Page): Promise<string[]> {
+interface TabsAndVersion {
+  tabs: string[];
+  version: string;
+}
+
+async function extractSearchTabs(page: Page): Promise<TabsAndVersion> {
   const searchTabs: string[] = [];
+  let claimStatusVersion = '';
 
   // Wait for iframe to load
   await page.waitForTimeout(2000);
 
   // Look for the iframe containing the claim status UI
   const frameElement = page.frameLocator('iframe[src*="enhanced-claim-status-ui"]');
+
+  // Extract Claim Status version from text like "Claim Status 2.0"
+  const versionSelectors = [
+    'h1', 'h2', 'h3', 'h4',
+    '[class*="title"]',
+    '[class*="header"]',
+    '[class*="heading"]',
+    '[class*="version"]',
+    'span', 'div'
+  ];
+
+  for (const selector of versionSelectors) {
+    try {
+      const elements = frameElement.locator(selector);
+      const count = await elements.count();
+      for (let i = 0; i < count && !claimStatusVersion; i++) {
+        const text = await elements.nth(i).textContent();
+        if (text) {
+          // Look for patterns like "Claim Status 2.0" or "Claim Status Version 2.0"
+          const versionMatch = text.match(/Claim\s+Status\s+(?:Version\s+)?(\d+\.?\d*)/i);
+          if (versionMatch) {
+            claimStatusVersion = versionMatch[1];
+            break;
+          }
+        }
+      }
+      if (claimStatusVersion) break;
+    } catch {
+      // Continue to next selector
+    }
+  }
 
   // Tab selectors to try
   const tabSelectors = [
@@ -211,7 +252,7 @@ async function extractSearchTabs(page: Page): Promise<string[]> {
     }
   }
 
-  return searchTabs;
+  return { tabs: searchTabs, version: claimStatusVersion };
 }
 
 async function processPayerWithRetry(
@@ -232,12 +273,13 @@ async function processPayerWithRetry(
     // Dismiss any cookie banners
     await dismissCookieBanner(page);
 
-    // Extract search tabs
-    const searchTabs = await extractSearchTabs(page);
+    // Extract search tabs and version
+    const { tabs, version } = await extractSearchTabs(page);
 
     return {
       ...payer,
-      searchTabs
+      searchTabs: tabs,
+      claimStatusVersion: version
     };
   } catch (error: any) {
     // Handle session timeout specially
@@ -257,6 +299,7 @@ async function processPayerWithRetry(
     return {
       ...payer,
       searchTabs: [],
+      claimStatusVersion: '',
       error: error.message
     };
   }
@@ -325,13 +368,14 @@ async function saveResults(
   // Build dynamic columns based on all discovered tab types
   const tabColumns = Array.from(allTabTypes).sort();
 
-  // Define columns
+  // Define columns - added Claim Status Version column
   const columns = [
     { header: 'Organization', key: 'organization', width: 40 },
     { header: 'State', key: 'state', width: 20 },
     { header: 'Payer Name', key: 'payerName', width: 50 },
     { header: 'Payer ID', key: 'payerId', width: 30 },
     { header: 'URL', key: 'url', width: 100 },
+    { header: 'Claim Status Version', key: 'claimStatusVersion', width: 20 },
     ...tabColumns.map(tab => ({ header: tab, key: tab, width: 15 })),
     { header: 'Error', key: 'error', width: 50 }
   ];
@@ -354,12 +398,13 @@ async function saveResults(
       payerName: payer.payerName,
       payerId: payer.payerId,
       url: payer.url,
+      claimStatusVersion: payer.claimStatusVersion || '',
       error: payer.error || ''
     };
 
-    // Set Y for each tab the payer has
+    // Set version for each tab the payer has (instead of Y)
     tabColumns.forEach(tab => {
-      row[tab] = payer.searchTabs.includes(tab) ? 'Y' : '';
+      row[tab] = payer.searchTabs.includes(tab) ? (payer.claimStatusVersion || 'Y') : '';
     });
 
     worksheet.addRow(row);
@@ -383,8 +428,15 @@ async function main() {
     // Load any previous progress
     const processed = await loadProgress(outputPath);
 
-    // Filter to unprocessed payers
-    const pendingPayers = allPayers.filter(p => !processed.has(`${p.state}|${p.payerName}`));
+    // Filter to unprocessed payers and apply START_INDEX
+    let pendingPayers = allPayers.filter(p => !processed.has(`${p.state}|${p.payerName}`));
+
+    // If START_INDEX is set, skip records
+    if (START_INDEX > 0 && processed.size === 0) {
+      console.log(`\nSkipping first ${START_INDEX} records (resuming from row ${START_INDEX + 1})`);
+      pendingPayers = allPayers.slice(START_INDEX);
+    }
+
     console.log(`\nPayers to process: ${pendingPayers.length}/${allPayers.length}`);
 
     if (pendingPayers.length === 0) {
@@ -432,18 +484,22 @@ async function main() {
           headers.push(cell.value?.toString() || '');
         });
 
-        // Find tab columns (after URL, before Error)
-        const urlIndex = headers.indexOf('URL');
+        // Find tab columns (after Claim Status Version, before Error)
+        const versionIndex = headers.indexOf('Claim Status Version');
         const errorIndex = headers.indexOf('Error');
-        const tabHeaders = headers.slice(urlIndex + 1, errorIndex);
+        const tabHeaders = headers.slice(versionIndex + 1, errorIndex);
         tabHeaders.forEach(tab => allTabTypes.add(tab));
 
         existingSheet.eachRow((row, rowNumber) => {
           if (rowNumber > 1) {
             const tabs: string[] = [];
+            const version = row.getCell(versionIndex + 1).value?.toString() || '';
+
             tabHeaders.forEach((tab, i) => {
-              const cellIndex = urlIndex + 2 + i; // +1 for 1-based, +1 for after URL
-              if (row.getCell(cellIndex).value === 'Y') {
+              const cellIndex = versionIndex + 2 + i; // +1 for 1-based, +1 for after version column
+              const cellValue = row.getCell(cellIndex).value?.toString() || '';
+              // If cell has a value (version number or Y), tab is present
+              if (cellValue) {
                 tabs.push(tab);
               }
             });
@@ -454,6 +510,7 @@ async function main() {
               payerName: row.getCell(3).value?.toString() || '',
               payerId: row.getCell(4).value?.toString() || '',
               url: row.getCell(5).value?.toString() || '',
+              claimStatusVersion: version,
               searchTabs: tabs,
               error: row.getCell(errorIndex + 1).value?.toString() || ''
             });
@@ -484,7 +541,7 @@ async function main() {
         if (result.error) {
           console.log(`  ✗ Error: ${result.error}`);
         } else {
-          console.log(`  ✓ Tabs: ${result.searchTabs.join(', ') || 'none found'}`);
+          console.log(`  ✓ Version: ${result.claimStatusVersion || 'unknown'} | Tabs: ${result.searchTabs.join(', ') || 'none found'}`);
         }
 
         saveCounter++;
@@ -515,6 +572,7 @@ async function main() {
         results.push({
           ...payer,
           searchTabs: [],
+          claimStatusVersion: '',
           error: error.message
         });
       }
