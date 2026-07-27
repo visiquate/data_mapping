@@ -8,6 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "payer-mapping-db"
 database_id = "885f9fc0-0767-4dc6-b5c4-c26ab361689d"
+migrations_dir = "worker/migrations"
 
 [vars]
 ENVIRONMENT = "production"
