@@ -207,18 +207,7 @@ async function getClientMappings(request: Request, env: Env, clientName: string,
 
 const ALT_PORTAL_VALUES = ['not available', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
 
-// Finding 5: PAGE_SCHEMA_DATA copied from web/src/lib/state-map.js
-const PAGE_SCHEMA_DATA: Record<string, number> = {
-  "20554": 1, "AETNA": 2, "ABH01": 4, "WLPNT": 5, "BCBSTX": 6, "HCSV2": 7, "HUMANA": 9,
-  "190": 8, "HMAPD": 0, "193": 0, "661": 5, "551": 0, "66003": 8, "91051": 0, "1260": 0,
-  "46148": 0, "76498": 0, "10550": 0,
-  "LOUISIANA%2520HEALTHCARE%2520CONNECTIONS": 10, "Superior": 11, "OTHERBLUEPLANS-TX": 0,
-  "88221": 0, "75261": 0, "80141T": 0, "00390": 4, "00932": 9, "00430": 8, "00430F": 8,
-  "55891": 8, "59355M": 8, "38336": 1, "A3144": 1, "A6001": 10, "IOWATOTALCARE": 10,
-  "NEBRASKA%2520TOTAL%2520CARE": 10, "A52189": 0, "BHOVO": 0, "52189": 0, "A6014": 10,
-  "160": 14, "A6863": 1, "DEVOT": 12, "COORDINATED%2520CARE": 10, "WCCENTENE": 10,
-  "A8822": 15, "UHC": 17,
-};
+// TODO: replace with a per-payer layout type mapping table once that data is available
 
 async function exportUiPath(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
@@ -263,8 +252,7 @@ async function exportUiPath(request: Request, env: Env, clientName: string, acto
     const pKey = stateAbbrev + '|' + payerId;
 
     if (!outputByPayerState[pKey]) {
-      // Finding 5: use PAGE_SCHEMA_DATA lookup instead of hardcoded 1
-      const pageLayoutType = PAGE_SCHEMA_DATA[payerId] ?? 1;
+      const pageLayoutType = 1;
       outputByPayerState[pKey] = {
         LocationCode: stateAbbrev,
         AvailityPayerID: payerId,
