@@ -43,15 +43,7 @@ describe('ALT_PORTAL_VALUES', () => {
 });
 
 describe('PAGE_SCHEMA_DATA', () => {
-  it('maps payer IDs to page layout integers', () => {
-    expect(PAGE_SCHEMA_DATA['AETNA']).toBe(2);
-    expect(PAGE_SCHEMA_DATA['BCBSTX']).toBe(6);
-    expect(PAGE_SCHEMA_DATA['HUMANA']).toBe(9);
-  });
-
-  it('has numeric values', () => {
-    Object.values(PAGE_SCHEMA_DATA).forEach(v => {
-      expect(typeof v).toBe('number');
-    });
+  it('is empty pending a DB-backed mapping table', () => {
+    expect(Object.keys(PAGE_SCHEMA_DATA).length).toBe(0);
   });
 });
