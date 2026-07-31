@@ -1,7 +1,6 @@
 import { api } from '../../lib/api.js';
 import { showToast } from '../../lib/toast.js';
 import { loadClients } from './client-table.js';
-import { STATE_ABBREV, ALT_PORTAL_VALUES } from '../../lib/state-map.js';
 import { XLSX } from '../../lib/xlsx-utils.js';
 
 /**
@@ -38,7 +37,8 @@ export function setupClientActions() {
 
         if (action === 'view') viewMappings(client);
         else if (action === 'excel') exportExcel(client);
-        else if (action === 'uipath') exportUiPath(client);
+        else if (action === 'uipath') openUiPathModal(client);
+        else if (action === 'configure') openConfigureModal(client);
         else if (action === 'edit') editClient(client);
         else if (action === 'delete') deleteClient(client);
         else if (action === 'resetpass') resetPassphrase(client);
@@ -168,53 +168,177 @@ async function exportExcel(name) {
 }
 
 /**
- * Exports client mappings as UiPath JSON format
- * Filters out alternative portal values and groups by state/payer
+ * Opens a portal-selection modal then downloads the UiPath export from the server.
  * @param {string} name - Client name
  */
-async function exportUiPath(name) {
-    try {
-        const mappings = await api.get('/admin/clients/' + encodeURIComponent(name) + '/mappings');
-        const outputByPayerState = {};
+function openUiPathModal(name) {
+    const overlay = makeOverlay();
 
-        mappings.forEach(m => {
-            const payerId = m.availityPayerId;
-            if (!payerId || ALT_PORTAL_VALUES.includes(payerId)) return;
-            const stateAbbrev = STATE_ABBREV[m.state] || m.state;
-            const pKey = stateAbbrev + '|' + payerId;
-            if (!outputByPayerState[pKey]) {
-                outputByPayerState[pKey] = {
-                    LocationCode: stateAbbrev,
-                    AvailityPayerID: payerId,
-                    ClaimDataPageLayoutType: 1,
-                    Queues: []
-                };
-            }
-            const queueName = m.planName.trim() + ', ' + stateAbbrev;
-            if (!outputByPayerState[pKey].Queues.includes(queueName)) {
-                outputByPayerState[pKey].Queues.push(queueName);
-            }
-        });
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.maxWidth = '380px';
 
-        const output = Object.values(outputByPayerState).sort((a, b) => {
-            if (a.LocationCode !== b.LocationCode) {
-                return a.LocationCode.localeCompare(b.LocationCode);
-            }
-            return a.AvailityPayerID.localeCompare(b.AvailityPayerID);
-        });
+    const closeBtn = makeCloseBtn(() => overlay.remove());
 
-        const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const timestamp = new Date().toISOString().split('T')[0];
-        a.href = url;
-        a.download = name + '_uipath_v6.0_' + timestamp + '.json';
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast('Exported UiPath JSON for ' + name, 'success');
-    } catch (e) {
-        showToast('Error: ' + e.message, 'error');
+    const title = document.createElement('h3');
+    title.textContent = name + ' — Export for UiPath';
+
+    const label = document.createElement('label');
+    label.textContent = 'Portal';
+    label.style.cssText = 'display:block;font-weight:600;margin:16px 0 6px;';
+
+    const select = document.createElement('select');
+    select.className = 'portal-select';
+    select.style.cssText = 'width:100%;margin-bottom:16px;';
+    [['availity', 'Availity'], ['uhc', 'UHC']].forEach(([val, label]) => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = label;
+        select.appendChild(opt);
+    });
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'btn btn-success';
+    downloadBtn.textContent = 'Download';
+    downloadBtn.style.width = '100%';
+    downloadBtn.addEventListener('click', async () => {
+        const portal = select.value;
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Downloading...';
+        try {
+            const { blob, filename } = await api.download(
+                '/clients/' + encodeURIComponent(name) + '/export/uipath?portal=' + portal
+            );
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+            overlay.remove();
+            showToast('Exported UiPath JSON (' + portal.toUpperCase() + ') for ' + name, 'success');
+        } catch (e) {
+            showToast('Export failed: ' + e.message, 'error');
+            downloadBtn.disabled = false;
+            downloadBtn.textContent = 'Download';
+        }
+    });
+
+    modal.append(closeBtn, title, label, select, downloadBtn);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+}
+
+/**
+ * Opens a modal to view and update per-portal configurations for a client.
+ * @param {string} name - Client name
+ */
+async function openConfigureModal(name) {
+    const overlay = makeOverlay();
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.maxWidth = '520px';
+
+    const closeBtn = makeCloseBtn(() => overlay.remove());
+
+    const title = document.createElement('h3');
+    title.textContent = name + ' — Portal Configuration';
+
+    // Portal selector
+    const portalLabel = document.createElement('label');
+    portalLabel.textContent = 'Portal';
+    portalLabel.style.cssText = 'display:block;font-weight:600;margin:16px 0 6px;';
+
+    const portalSelect = document.createElement('select');
+    portalSelect.className = 'portal-select';
+    portalSelect.style.cssText = 'width:100%;margin-bottom:16px;';
+    const uhcOpt = document.createElement('option');
+    uhcOpt.value = 'UHC';
+    uhcOpt.textContent = 'UHC — TaxID to Facility mapping';
+    portalSelect.appendChild(uhcOpt);
+
+    const statusLine = document.createElement('p');
+    statusLine.style.cssText = 'font-size:0.85em;color:var(--text-muted);margin:0 0 8px;';
+
+    const configLabel = document.createElement('label');
+    configLabel.style.cssText = 'display:block;font-weight:600;margin-bottom:6px;';
+    configLabel.textContent = 'Configuration JSON (paste and save)';
+
+    const textarea = document.createElement('textarea');
+    textarea.style.cssText = 'width:100%;height:180px;font-family:monospace;font-size:0.82em;box-sizing:border-box;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--bg-secondary));color:var(--text);resize:vertical;';
+    textarea.placeholder = '{\n  "843178470": "U Of L Health Louisville (007305605)",\n  "611293786": "University Medical Center (003311434)"\n}';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-success';
+    saveBtn.textContent = 'Save Configuration';
+    saveBtn.style.cssText = 'width:100%;margin-top:12px;';
+
+    async function loadPortalConfig() {
+        const portal = portalSelect.value;
+        statusLine.textContent = 'Loading...';
+        textarea.value = '';
+        try {
+            const result = await api.get('/admin/clients/' + encodeURIComponent(name) + '/portal-config/' + portal);
+            if (result.exists) {
+                textarea.value = JSON.stringify(result.config, null, 2);
+                statusLine.textContent = 'Last updated: ' + new Date(result.updatedAt).toLocaleString();
+            } else {
+                statusLine.textContent = 'No configuration saved yet.';
+            }
+        } catch (e) {
+            statusLine.textContent = 'Error loading config: ' + e.message;
+        }
     }
+
+    portalSelect.addEventListener('change', loadPortalConfig);
+
+    saveBtn.addEventListener('click', async () => {
+        const portal = portalSelect.value;
+        let parsed;
+        try {
+            parsed = JSON.parse(textarea.value);
+        } catch {
+            showToast('Invalid JSON — check formatting', 'error');
+            return;
+        }
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        try {
+            const result = await api.put(
+                '/admin/clients/' + encodeURIComponent(name) + '/portal-config/' + portal,
+                { config: parsed }
+            );
+            showToast('Saved ' + result.keys + ' entries for ' + portal, 'success');
+            statusLine.textContent = 'Saved just now (' + result.keys + ' entries)';
+        } catch (e) {
+            showToast('Save failed: ' + e.message, 'error');
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Configuration';
+        }
+    });
+
+    modal.append(closeBtn, title, portalLabel, portalSelect, statusLine, configLabel, textarea, saveBtn);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    loadPortalConfig();
+}
+
+function makeOverlay() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    return overlay;
+}
+
+function makeCloseBtn(onClose) {
+    const btn = document.createElement('button');
+    btn.className = 'modal-close';
+    btn.textContent = '×';
+    btn.addEventListener('click', onClose);
+    return btn;
 }
 
 /**

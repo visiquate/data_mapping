@@ -44,6 +44,7 @@ export async function loadClients() {
                     '<button class="btn btn-primary btn-sm" data-action="view" data-client="' + escapeHtml(c.clientName) + '">View</button>' +
                     '<button class="btn btn-success btn-sm" data-action="excel" data-client="' + escapeHtml(c.clientName) + '">Excel</button>' +
                     '<button class="btn btn-secondary btn-sm" data-action="uipath" data-client="' + escapeHtml(c.clientName) + '">UiPath</button>' +
+                    '<button class="btn btn-sm" style="background:#1a6b4a;color:white;" data-action="configure" data-client="' + escapeHtml(c.clientName) + '">Configure</button>' +
                     '<button class="btn btn-sm" style="background:var(--color-warning);color:white;" data-action="edit" data-client="' + escapeHtml(c.clientName) + '">Edit</button>' +
                     '<button class="btn btn-danger btn-sm" data-action="delete" data-client="' + escapeHtml(c.clientName) + '">Delete</button>' +
                     '<button class="btn btn-sm" style="background:#8e44ad;color:white;" data-action="resetpass" data-client="' + escapeHtml(c.clientName) + '">Reset Pass</button>' +

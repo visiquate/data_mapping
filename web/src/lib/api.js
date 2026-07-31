@@ -73,4 +73,20 @@ export const api = {
         if (!response.ok) throw new Error('Download failed: ' + response.status);
         return response.blob();
     },
+    // For file downloads — returns { blob, filename } extracted from Content-Disposition
+    download: async (path) => {
+        const token = getToken();
+        const headers = {};
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        const response = await fetch(API_BASE + path, { headers });
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.error || 'Download failed: ' + response.status);
+        }
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="([^"]+)"/);
+        const filename = match ? match[1] : 'download.json';
+        const blob = await response.blob();
+        return { blob, filename };
+    },
 };

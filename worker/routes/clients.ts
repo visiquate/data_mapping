@@ -1,6 +1,7 @@
 import type { Env } from '../index';
 import { json, safeJson } from '../router';
 import { requireAuth, AuthError } from '../auth';
+import { buildAvailityExport, buildUhcExport, downloadResponse, isValidPortal } from './export';
 
 const MAX_MAPPING_ENTRIES = 5000;
 const MAX_STATE_PLAN_NAME_LEN = 256;
@@ -13,8 +14,10 @@ export function validateClientName(name: string): boolean {
 
 export async function handleClientRoutes(request: Request, env: Env, path: string, method: string): Promise<Response> {
   try {
-    // Extract client name from path: /api/v1/clients/:name/mappings
-    const match = path.match(/^\/api\/v1\/clients\/([^/]+)\/mappings$/);
+    const exportMatch = path.match(/^\/api\/v1\/clients\/([^/]+)\/export\/uipath$/);
+    const mappingsMatch = path.match(/^\/api\/v1\/clients\/([^/]+)\/mappings$/);
+    const match = exportMatch || mappingsMatch;
+
     if (!match) {
       return json({ error: 'Not found' }, 404);
     }
@@ -27,28 +30,58 @@ export async function handleClientRoutes(request: Request, env: Env, path: strin
 
     const payload = await requireAuth(request, env, 'client');
 
-    // Clients can only access their own data (admins can access any)
-    // Case-insensitive comparison: payload.sub preserves DB casing, clientName is uppercased
     if (payload.role === 'client' && payload.sub.toUpperCase() !== clientName) {
       return json({ error: 'Access denied' }, 403);
     }
 
-    if (method === 'GET') {
-      return getMappings(request, env, clientName, payload.sub);
+    if (exportMatch && method === 'GET') {
+      return exportUiPath(request, env, clientName, payload.sub);
     }
 
-    if (method === 'PUT') {
-      // Finding 9: pass payload.sub as actor
-      return putMappings(request, env, clientName, payload.sub);
+    if (mappingsMatch) {
+      if (method === 'GET') return getMappings(request, env, clientName, payload.sub);
+      if (method === 'PUT') return putMappings(request, env, clientName, payload.sub);
+      return json({ error: 'Method not allowed' }, 405);
     }
 
-    return json({ error: 'Method not allowed' }, 405);
+    return json({ error: 'Not found' }, 404);
   } catch (error: unknown) {
     if (error instanceof AuthError) {
       return json({ error: error.message }, error.status);
     }
     throw error;
   }
+}
+
+async function exportUiPath(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
+  const client = await env.DB.prepare(
+    'SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE'
+  ).bind(clientName).first<{ id: number }>();
+  if (!client) return json({ error: 'Client not found' }, 404);
+
+  const url = new URL(request.url);
+  const portalParam = (url.searchParams.get('portal') || 'availity').toLowerCase();
+  if (!isValidPortal(portalParam)) {
+    return json({ error: 'Invalid portal. Valid values: availity, uhc' }, 400);
+  }
+
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare(
+    'INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)'
+  ).bind(actor, 'uipath_export', clientName, JSON.stringify({ ip, portal: portalParam })).run();
+
+  const timestamp = new Date().toISOString().split('T')[0];
+
+  if (portalParam === 'uhc') {
+    const queues = await buildUhcExport(env, client.id);
+    if (queues === null) {
+      return json({ error: 'No UHC configuration found for this client. Upload a TaxID mapping via the admin portal config.' }, 409);
+    }
+    return downloadResponse(JSON.stringify(queues, null, 2), `${clientName}_uhc_uipath_${timestamp}.json`);
+  }
+
+  const output = await buildAvailityExport(env, client.id);
+  return downloadResponse(JSON.stringify(output, null, 2), `${clientName}_uipath_${timestamp}.json`);
 }
 
 async function getMappings(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {

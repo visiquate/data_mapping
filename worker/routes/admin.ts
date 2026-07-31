@@ -2,6 +2,7 @@ import type { Env } from '../index';
 import { json, safeJson } from '../router';
 import { requireAuth, AuthError, hashPassphraseSecure } from '../auth';
 import { validateClientName } from './clients';
+import { ALT_PORTAL_VALUES, STATE_ABBREV } from './export';
 
 export async function handleAdminRoutes(request: Request, env: Env, path: string, method: string): Promise<Response> {
   try {
@@ -37,17 +38,18 @@ export async function handleAdminRoutes(request: Request, env: Env, path: string
       return resetPassphrase(request, env, name);
     }
 
-    // GET /api/v1/admin/clients/:name/export/uipath
-    const uipathMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)\/export\/uipath$/);
-    if (uipathMatch && method === 'GET') {
-      const name = decodeURIComponent(uipathMatch[1]);
-      if (!validateClientName(name)) {
-        return json({ error: 'Invalid client name' }, 400);
-      }
-      return exportUiPath(request, env, name, payload.sub);
+    // GET /api/v1/admin/clients/:name/portal-config/:portal
+    // PUT /api/v1/admin/clients/:name/portal-config/:portal
+    const portalConfigMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)\/portal-config\/([^/]+)$/);
+    if (portalConfigMatch) {
+      const name = decodeURIComponent(portalConfigMatch[1]);
+      const portal = decodeURIComponent(portalConfigMatch[2]).toUpperCase();
+      if (!validateClientName(name)) return json({ error: 'Invalid client name' }, 400);
+      if (method === 'GET') return getPortalConfig(request, env, name, portal, payload.sub);
+      if (method === 'PUT') return putPortalConfig(request, env, name, portal, payload.sub);
     }
 
-    // GET /api/v1/admin/clients/:name/mappings
+    // GET /api/v1/admin/clients/:name/mappings  (export/uipath now served by client route)
     const mappingsMatch = path.match(/^\/api\/v1\/admin\/clients\/([^/]+)\/mappings$/);
     if (mappingsMatch && method === 'GET') {
       const name = decodeURIComponent(mappingsMatch[1]);
@@ -205,79 +207,57 @@ async function getClientMappings(request: Request, env: Env, clientName: string,
   })));
 }
 
-const ALT_PORTAL_VALUES = ['not available', 'UHC', 'Superior', 'Cigna', 'HPN', 'UMR', 'OptumCare'];
-
-// TODO: replace with a per-payer layout type mapping table once that data is available
-
-async function exportUiPath(request: Request, env: Env, clientName: string, actor: string): Promise<Response> {
+async function getPortalConfig(request: Request, env: Env, clientName: string, portal: string, actor: string): Promise<Response> {
   const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
-  if (!client) {
-    return json({ error: 'Client not found' }, 404);
-  }
+  if (!client) return json({ error: 'Client not found' }, 404);
 
-  const rows = await env.DB.prepare(
-    'SELECT state_name, plan_name, availity_payer_id FROM payer_mappings WHERE client_id = ? AND availity_payer_id IS NOT NULL'
-  ).bind(client.id).all();
+  const row = await env.DB.prepare(
+    'SELECT config_json, updated_at FROM portal_configs WHERE client_id = ? AND portal = ?'
+  ).bind(client.id, portal).first<{ config_json: string; updated_at: number }>();
 
-  // Fix 6: include IP in audit log
+  if (!row) return json({ exists: false, config: null, updatedAt: null });
+
   const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)').bind(actor, 'admin_uipath_export', clientName, JSON.stringify({ ip })).run();
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)')
+    .bind(actor, 'portal_config_read', clientName, JSON.stringify({ ip, portal })).run();
 
-  // State name to abbreviation map
-  const STATE_ABBREV: Record<string, string> = {
-    'Alabama': 'AL', 'Alaska': 'AK', 'American Samoa': 'AS', 'Arizona': 'AZ',
-    'Arkansas': 'AR', 'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT',
-    'Delaware': 'DE', 'District of Columbia': 'DC', 'Florida': 'FL', 'Georgia': 'GA',
-    'Guam': 'GU', 'Hawaii': 'HI', 'Idaho': 'ID', 'Illinois': 'IL', 'Indiana': 'IN',
-    'Iowa': 'IA', 'Kansas': 'KS', 'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME',
-    'Maryland': 'MD', 'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN',
-    'Mississippi': 'MS', 'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE',
-    'Nevada': 'NV', 'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM',
-    'New York': 'NY', 'North Carolina': 'NC', 'North Dakota': 'ND',
-    'Northern Mariana Islands': 'MP', 'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR',
-    'Pennsylvania': 'PA', 'Puerto Rico': 'PR', 'Rhode Island': 'RI',
-    'South Carolina': 'SC', 'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX',
-    'Utah': 'UT', 'Vermont': 'VT', 'Virgin Islands': 'VI', 'Virginia': 'VA',
-    'Washington': 'WA', 'West Virginia': 'WV', 'Wisconsin': 'WI', 'Wyoming': 'WY',
-  };
+  return json({
+    exists: true,
+    config: JSON.parse(row.config_json),
+    updatedAt: new Date(row.updated_at * 1000).toISOString(),
+  });
+}
 
-  const outputByPayerState: Record<string, any> = {};
+async function putPortalConfig(request: Request, env: Env, clientName: string, portal: string, actor: string): Promise<Response> {
+  const client = await env.DB.prepare('SELECT id FROM clients WHERE client_name = ? COLLATE NOCASE').bind(clientName).first<{ id: number }>();
+  if (!client) return json({ error: 'Client not found' }, 404);
 
-  for (const row of rows.results) {
-    const r = row as any;
-    const payerId = r.availity_payer_id;
-    if (ALT_PORTAL_VALUES.includes(payerId)) continue;
-
-    const stateAbbrev = STATE_ABBREV[r.state_name] || r.state_name;
-    const pKey = stateAbbrev + '|' + payerId;
-
-    if (!outputByPayerState[pKey]) {
-      const pageLayoutType = 1;
-      outputByPayerState[pKey] = {
-        LocationCode: stateAbbrev,
-        AvailityPayerID: payerId,
-        ClaimDataPageLayoutType: pageLayoutType,
-        Queues: [],
-      };
-    }
-
-    const queueName = r.plan_name.trim() + ', ' + stateAbbrev;
-    if (!outputByPayerState[pKey].Queues.includes(queueName)) {
-      outputByPayerState[pKey].Queues.push(queueName);
-    }
+  const body = await safeJson<{ config?: unknown }>(request);
+  if (body === null || typeof body.config !== 'object' || body.config === null || Array.isArray(body.config)) {
+    return json({ error: 'config must be a non-null JSON object' }, 400);
   }
 
-  const output = Object.values(outputByPayerState).sort((a: any, b: any) => {
-    if (a.LocationCode !== b.LocationCode) return a.LocationCode.localeCompare(b.LocationCode);
-    return a.AvailityPayerID.localeCompare(b.AvailityPayerID);
-  });
+  const config = body.config as Record<string, unknown>;
+  if (Object.keys(config).length === 0) {
+    return json({ error: 'config must not be empty' }, 400);
+  }
+  for (const [k, v] of Object.entries(config)) {
+    if (!/^\d+$/.test(k)) return json({ error: `Key "${k}" is not a valid tax ID (digits only)` }, 400);
+    if (typeof v !== 'string' || v.trim().length === 0) return json({ error: `Value for key "${k}" must be a non-empty string` }, 400);
+  }
 
-  return new Response(JSON.stringify(output, null, 2), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="${clientName}_uipath.json"`,
-    },
-  });
+  const configJson = JSON.stringify(config);
+  await env.DB.prepare(
+    `INSERT INTO portal_configs (client_id, portal, config_json, updated_at)
+     VALUES (?, ?, ?, unixepoch())
+     ON CONFLICT(client_id, portal) DO UPDATE SET config_json = excluded.config_json, updated_at = unixepoch()`
+  ).bind(client.id, portal, configJson).run();
+
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+  await env.DB.prepare('INSERT INTO audit_log (actor, action, client_name, detail) VALUES (?, ?, ?, ?)')
+    .bind(actor, 'portal_config_updated', clientName, JSON.stringify({ ip, portal, keys: Object.keys(config).length })).run();
+
+  return json({ ok: true, portal, keys: Object.keys(config).length });
 }
 
 /**
