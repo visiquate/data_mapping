@@ -84,6 +84,12 @@
 .payer-select.mapped { border-color: var(--color-success); }
 .payer-select.not-available { border-color: var(--color-error); }
 
+.portal-select {
+    padding: 8px 12px; border: 1px solid var(--border-color);
+    border-radius: 5px; font-size: 0.9em; background: var(--input-bg); color: var(--input-text);
+}
+.portal-select:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 2px rgba(255,81,0,0.2); }
+
 .action-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 20px; }
 
 .search-box {

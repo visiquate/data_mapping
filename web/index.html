@@ -103,18 +103,13 @@
 
         <div class="card hidden" id="actionsSection">
             <h2>Step 3: Export</h2>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
-                <div class="action-buttons" style="margin-top: 0;">
-                    <button class="btn btn-secondary" id="saveMappingBtn">Save Mapping Progress</button>
-                    <button class="btn btn-success" id="exportJsonBtn">Export for UiPath (.json)</button>
-                </div>
-                <div class="upload-box" id="schemaDropZone" style="border-width: 1px; padding: 15px; min-width: 250px;">
-                    <h3 style="font-size: 0.9em;">Update Page Schema (Optional)</h3>
-                    <p style="font-size: 0.8em;">Upload new schema mapping (.json)</p>
-                    <input type="file" id="schemaFile" accept=".json">
-                    <button class="upload-btn" style="padding: 6px 12px; font-size: 0.8em;" onclick="document.getElementById('schemaFile').click()">Choose File</button>
-                    <div class="file-name" id="schemaFileName" style="font-size: 0.8em;"></div>
-                </div>
+            <div class="action-buttons" style="margin-top: 0; align-items: center;">
+                <button class="btn btn-secondary" id="saveMappingBtn">Save Mapping Progress</button>
+                <select id="exportPortalSelect" class="portal-select">
+                    <option value="availity">Availity</option>
+                    <option value="uhc">UHC</option>
+                </select>
+                <button class="btn btn-success" id="exportJsonBtn">Export for UiPath (.json)</button>
             </div>
         </div>
     </div>

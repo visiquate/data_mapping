@@ -5,11 +5,12 @@
 import { showToast } from '../../lib/toast.js';
 import { readSpreadsheet } from '../../lib/xlsx-utils.js';
 import { detectPHIColumns } from '../../lib/phi-detector.js';
-import { STATE_MAP, STATE_ABBREV, ALT_PORTAL_VALUES, PAGE_SCHEMA_DATA } from '../../lib/state-map.js';
+import { STATE_MAP, STATE_ABBREV } from '../../lib/state-map.js';
 import { getState } from './state.js';
 import { renderMappingInterface, updateStats, buildPlansFromMappings, applyMappingsToInterface } from './mapping-ui.js';
 import { XLSX } from '../../lib/xlsx-utils.js';
 import { autoSave } from './auto-save.js';
+import { api } from '../../lib/api.js';
 
 /**
  * Setup all file input handlers and drag-drop zones
@@ -21,8 +22,6 @@ export function setupFileHandlers() {
     setupDragDrop('mappingDropZone', 'mappingFile');
     document.getElementById('saveMappingBtn').addEventListener('click', saveMappingProgress);
     document.getElementById('exportJsonBtn').addEventListener('click', exportForUiPath);
-    document.getElementById('schemaFile').addEventListener('change', handleSchemaFile);
-    setupDragDrop('schemaDropZone', 'schemaFile');
 }
 
 /**
@@ -244,22 +243,6 @@ function convertUiPathToMappings(uipathData) {
 }
 
 /**
- * Handle schema file upload
- * @param {Event} e - The change event
- */
-function handleSchemaFile(e) {
-    const state = getState();
-    const file = e.target.files[0];
-    if (!file) return;
-    document.getElementById('schemaFileName').textContent = file.name;
-    document.getElementById('schemaDropZone').classList.add('has-file');
-    file.text().then(text => {
-        state.PAGE_SCHEMAS = JSON.parse(text);
-        showToast('Loaded ' + Object.keys(state.PAGE_SCHEMAS).length + ' page schemas', 'success');
-    }).catch(error => showToast('Error: ' + error.message, 'error'));
-}
-
-/**
  * Process the placement data to build plansByState
  * Extracts unique State|Payer combinations and their volumes
  */
@@ -353,40 +336,33 @@ function saveMappingProgress() {
 }
 
 /**
- * Export mapping data for UiPath automation
+ * Export mapping data for UiPath automation via server endpoint.
  */
-function exportForUiPath() {
+async function exportForUiPath() {
     const state = getState();
-    const schemas = state.PAGE_SCHEMAS || PAGE_SCHEMA_DATA;
-    const outputByPayerState = {};
-    Object.entries(state.plansByState).forEach(([st, plans]) => {
-        plans.forEach(plan => {
-            const mappingKey = st + '|' + plan.planName;
-            const mapping = state.currentMappings[mappingKey];
-            if (!mapping) return;
-            const payerId = mapping.availityPayerId;
-            if (ALT_PORTAL_VALUES.includes(payerId)) return;
-            const stateAbbrev = plan.stateAbbrev;
-            const key = stateAbbrev + '|' + payerId;
-            if (!outputByPayerState[key]) {
-                outputByPayerState[key] = { LocationCode: stateAbbrev, AvailityPayerID: payerId, ClaimDataPageLayoutType: schemas[payerId] !== undefined ? schemas[payerId] : 1, Queues: [] };
-            }
-            // Defensive trim: queue name must be exactly "{PayerName}, {State}" with no extra spaces
-            const queueName = String(plan.planName).trim() + ', ' + String(stateAbbrev).trim();
-            if (!outputByPayerState[key].Queues.includes(queueName)) outputByPayerState[key].Queues.push(queueName);
-        });
-    });
-    const output = Object.values(outputByPayerState).sort((a, b) => {
-        if (a.LocationCode !== b.LocationCode) return a.LocationCode.localeCompare(b.LocationCode);
-        return a.AvailityPayerID.localeCompare(b.AvailityPayerID);
-    });
-    const name = state.clientName || 'Client';
-    const timestamp = new Date().toISOString().split('T')[0];
-    const blob = new Blob([JSON.stringify(output, null, 4)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = name + '_uipath_v6.0_' + timestamp + '.json';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('UiPath JSON exported', 'success');
+    if (!state.clientName) {
+        showToast('No client loaded', 'error');
+        return;
+    }
+    const portal = document.getElementById('exportPortalSelect').value;
+    const btn = document.getElementById('exportJsonBtn');
+    btn.disabled = true;
+    try {
+        const { blob, filename } = await api.download(
+            '/clients/' + encodeURIComponent(state.clientName) + '/export/uipath?portal=' + portal
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('UiPath JSON exported (' + portal.toUpperCase() + ')', 'success');
+    } catch (e) {
+        showToast('Export failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
 }

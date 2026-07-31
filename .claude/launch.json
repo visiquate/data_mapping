@@ -11,7 +11,8 @@
       "name": "worker-dev",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["wrangler", "dev"],
-      "port": 8787
+      "port": 8787,
+      "autoPort": false
     }
   ]
 }
