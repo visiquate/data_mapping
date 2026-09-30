@@ -1,8 +1,21 @@
-import { chromium, Browser, Page } from 'playwright';
+import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import prompts from 'prompts';
 import ExcelJS from 'exceljs';
 import * as path from 'path';
 import * as os from 'os';
+import { promises as fs } from 'fs';
+import { execSync } from 'child_process';
+
+const OP_ITEM = 'SP-Availity-1';
+const SESSION_FILE = path.join(os.homedir(), '.availity-session.json');
+
+function opGet(field: string): string {
+  return execSync(`op item get "${OP_ITEM}" --fields "${field}" --reveal`, { encoding: 'utf8', timeout: 5000 }).trim();
+}
+
+function opTotp(): string {
+  return execSync(`op item get "${OP_ITEM}" --otp`, { encoding: 'utf8', timeout: 5000 }).trim();
+}
 
 interface PayerInfo {
   organization: string;
@@ -13,41 +26,63 @@ interface PayerInfo {
 }
 
 async function promptCredentials() {
-  const response = await prompts([
-    {
-      type: 'text',
-      name: 'username',
-      message: 'Enter Availity username:',
-      validate: (value) => value.length > 0 || 'Username is required'
-    },
-    {
-      type: 'password',
-      name: 'password',
-      message: 'Enter Availity password:',
-      validate: (value) => value.length > 0 || 'Password is required'
+  try {
+    const username = opGet('username');
+    const password = opGet('password');
+    if (username && password) {
+      console.log(`Credentials loaded from 1Password (${OP_ITEM})`);
+      return { username, password };
     }
-  ]);
-
-  if (!response.username || !response.password) {
-    throw new Error('Credentials are required');
+  } catch {
+    console.log('1Password not available, falling back to prompts');
   }
 
+  const response = await prompts([
+    { type: 'text',     name: 'username', message: 'Enter Availity username:', validate: (v: string) => v.length > 0 || 'Required' },
+    { type: 'password', name: 'password', message: 'Enter Availity password:', validate: (v: string) => v.length > 0 || 'Required' },
+  ]);
+  if (!response.username || !response.password) throw new Error('Credentials are required');
   return response;
 }
 
-async function prompt2FACode() {
-  const response = await prompts({
-    type: 'text',
-    name: 'code',
-    message: 'Enter 2FA verification code:',
-    validate: (value) => value.length > 0 || '2FA code is required'
-  });
-
-  if (!response.code) {
-    throw new Error('2FA code is required');
+async function prompt2FACode(): Promise<string> {
+  try {
+    const code = opTotp();
+    if (/^\d{6}$/.test(code)) {
+      console.log('TOTP retrieved from 1Password');
+      return code;
+    }
+  } catch {
+    console.log('1Password TOTP not available, please enter manually');
   }
 
+  const response = await prompts({ type: 'text', name: 'code', message: 'Enter 2FA verification code:', validate: (v: string) => v.length > 0 || 'Required' });
+  if (!response.code) throw new Error('2FA code is required');
   return response.code;
+}
+
+async function sessionFileAge(): Promise<number | null> {
+  try {
+    const stat = await fs.stat(SESSION_FILE);
+    return Date.now() - stat.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSession(browser: Browser): Promise<BrowserContext> {
+  const age = await sessionFileAge();
+  if (age !== null) {
+    const hours = (age / 1000 / 60 / 60).toFixed(1);
+    console.log(`Loading saved session (${hours}h old)...`);
+    return browser.newContext({ storageState: SESSION_FILE, viewport: { width: 1280, height: 720 } });
+  }
+  throw new Error('No session file found');
+}
+
+async function saveSession(context: BrowserContext) {
+  await context.storageState({ path: SESSION_FILE });
+  console.log(`Session saved → ${SESSION_FILE}`);
 }
 
 async function login(page: Page, username: string, password: string) {
@@ -270,8 +305,8 @@ async function selectState(page: Page, state: string) {
   await page.waitForTimeout(3000);
   await page.waitForLoadState('networkidle', { timeout: 60000 }); // Increased timeout
 
-  // After state change, page refreshes - need to select Claim Status again
-  await selectClaimStatus(page);
+  // Go directly to claim status -- the card search always fails anyway
+  await navigateToClaimStatus(page);
 }
 
 async function dismissCookieBanner(page: Page) {
@@ -283,123 +318,64 @@ async function dismissCookieBanner(page: Page) {
   }
 }
 
-async function getPayersForState(page: Page, state: string, organization: string): Promise<PayerInfo[]> {
-  console.log(`Getting payers for ${state}...`);
+const CLAIM_STATUS_SELECT_URL = 'https://essentials.availity.com/static/web/onb/onboarding-ui-apps/navigation/#/loadApp/?appUrl=%2Fstatic%2Fweb%2Fpost%2Fcs%2Fenhanced-claim-status-ui%2F%23%2Fdashboard';
+const NAV_ROOT = 'https://essentials.availity.com/static/web/onb/onboarding-ui-apps/navigation/#/';
+const MENU_SELECTORS = [
+  '[class*="payer-select__menu"] [class*="option"]',
+  '[id*="react-select"][id*="listbox"] [role="option"]',
+  '[class*="menu"] [role="option"]',
+];
 
-  const payers: PayerInfo[] = [];
-
-  // Dismiss any cookie banner
+async function getPayerNamesForState(page: Page): Promise<string[]> {
   await dismissCookieBanner(page);
+  const frame = page.frameLocator('iframe[name="newBody"]');
+  await frame.locator('#payerSelect').waitFor({ timeout: 15000 });
+  await page.waitForTimeout(500);
 
-  // The Claim Status app is loaded in an iframe - find it
-  console.log('Looking for iframe...');
-  const frameElement = page.frameLocator('iframe[src*="enhanced-claim-status-ui"]');
-
-  // Wait for payer dropdown to be visible in the iframe
-  await frameElement.locator('#payerSelect').waitFor({ timeout: 15000 });
+  await frame.locator('#payerSelect .payer-select__control').first().click();
   await page.waitForTimeout(1000);
 
-  // Find and click the React Select control to open the dropdown
-  const payerControl = frameElement.locator('#payerSelect .payer-select__control').first();
-  await payerControl.click();
-  await page.waitForTimeout(1500);
-
-  // Wait for dropdown menu to appear
-  // React Select typically creates a menu with options
-  const menuSelectors = [
-    '[class*="payer-select__menu"] [class*="option"]',
-    '[id*="react-select"][id*="listbox"] [role="option"]',
-    '[class*="menu"] [role="option"]',
-    '[class*="Select__menu"] [class*="option"]'
-  ];
-
-  let payerOptionElements: any[] = [];
-  for (const selector of menuSelectors) {
-    const options = frameElement.locator(selector);
-    const count = await options.count();
-    if (count > 0) {
-      console.log(`Found ${count} payers using selector: ${selector}`);
-      payerOptionElements = await options.all();
+  const names: string[] = [];
+  for (const selector of MENU_SELECTORS) {
+    const opts = frame.locator(selector);
+    if (await opts.count() > 0) {
+      console.log(`  Found ${await opts.count()} payers`);
+      for (const opt of await opts.all()) {
+        const text = await opt.textContent();
+        if (text?.trim()) names.push(text.trim());
+      }
       break;
     }
   }
 
-  if (payerOptionElements.length === 0) {
-    console.log('⚠ No payer options found - dropdown may be empty for this state');
-    return payers;
-  }
-
-  // Get all payer names first
-  const payerNames: string[] = [];
-  for (const option of payerOptionElements) {
-    const name = await option.textContent();
-    if (name && name.trim()) {
-      payerNames.push(name.trim());
-    }
-  }
-
-  // Close the dropdown
   await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  return names;
+}
+
+async function getPayerIdByName(page: Page, payerName: string): Promise<string> {
+  await page.goto(NAV_ROOT, { waitUntil: 'networkidle', timeout: 30000 });
+  await page.waitForTimeout(500);
+  await page.goto(CLAIM_STATUS_SELECT_URL, { waitUntil: 'networkidle', timeout: 30000 });
+  await page.waitForTimeout(2000);
+
+  const frame = page.frameLocator('iframe[name="newBody"]');
+  const control = frame.locator('#payerSelect .payer-select__control');
+  await control.waitFor({ state: 'visible', timeout: 30000 });
+
+  const urlBefore = page.url();
+  await control.click();
+  await page.waitForTimeout(300);
+
+  await frame.locator('#payerSelect [class*="payer-select__option"]')
+    .filter({ hasText: payerName }).first().click();
+
+  await page.waitForURL((url: URL) => url.toString() !== urlBefore, { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(500);
 
-  // Now select each payer individually to get the payerId from URL
-  for (const payerName of payerNames) {
-    try {
-      // Dismiss cookie banner before selecting
-      await dismissCookieBanner(page);
-
-      // Save current URL before selecting
-      const urlBeforeClick = page.url();
-
-      // Find the payer input field
-      const payerInput = frameElement.locator('#payer').first();
-
-      // Clear and type the payer name
-      console.log(`  Typing: ${payerName}`);
-      await payerInput.click();
-      await page.waitForTimeout(300);
-      await payerInput.fill(''); // Clear
-      await payerInput.fill(payerName);
-      await page.waitForTimeout(500);
-
-      // Press Enter to select
-      await payerInput.press('Enter');
-      await page.waitForTimeout(500);
-
-      // Wait for URL to change or timeout after 5 seconds
-      let currentUrl = page.url();
-      let attempts = 0;
-      while (currentUrl === urlBeforeClick && attempts < 10) {
-        await page.waitForTimeout(500);
-        currentUrl = page.url();
-        attempts++;
-      }
-
-      // Additional wait for page to stabilize
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-      await page.waitForTimeout(1000);
-
-      // Get final URL and extract payerId
-      currentUrl = page.url();
-      const payerIdMatch = currentUrl.match(/payerId[=%]3D([^&]*)/);
-      const payerId = payerIdMatch ? decodeURIComponent(payerIdMatch[1]) : '';
-
-      payers.push({
-        organization,
-        state,
-        payerName,
-        payerId,
-        url: currentUrl
-      });
-
-      console.log(`  ✓ ${payerName} (${payerId})`);
-
-    } catch (error: any) {
-      console.log(`  ✗ Error processing ${payerName}: ${error.message}`);
-    }
-  }
-
-  return payers;
+  const currentUrl = page.url();
+  const match = currentUrl.match(/payerId[=%]3D([^&]*)/);
+  return match ? decodeURIComponent(match[1]) : '';
 }
 
 let excelFilePath: string = '';
@@ -497,113 +473,195 @@ async function saveToExcel(data: PayerInfo[], isInitial: boolean = false) {
   console.log(`\n✓ Progress saved: ${data.length} total records`);
 }
 
+const SAVE_SESSION_MODE = process.argv.includes('--save-session');
+
 async function main() {
   let browser: Browser | null = null;
 
   try {
-    // Get credentials
-    const { username, password } = await promptCredentials();
-
-    // Launch browser
     console.log('\nLaunching browser...');
-    browser = await chromium.launch({
-      headless: false,
-      slowMo: 100  // Slow down actions to see what's happening
-    });
+    browser = await chromium.launch({ headless: !SAVE_SESSION_MODE, channel: 'chrome' });
 
-    const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 }
-    });
+    let context: BrowserContext;
+    let page: Page;
 
-    const page = await context.newPage();
+    if (SAVE_SESSION_MODE) {
+      console.log('Save-session mode: opening browser for manual login...');
+      context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      page = await context.newPage();
+      await page.goto('https://apps.availity.com/public-apps/login', { waitUntil: 'networkidle' });
+      console.log('\nPlease log in manually in the browser window.');
+      console.log('Waiting for you to reach the Availity dashboard (up to 5 minutes)...\n');
+      // Wait for the navigation dashboard URL -- this only appears after successful login
+      await page.waitForURL(url => { const s = url.toString(); return s.includes('essentials.availity.com') && s.includes('navigation/#/') && !s.includes('login'); }, { timeout: 300000 });
+      await page.waitForLoadState('networkidle');
+      await saveSession(context);
+      console.log('\nSession saved. You can close the browser now.');
+      return;
+    }
 
-    // Login flow
-    await login(page, username, password);
-    await handle2FA(page);
-    await skipUpdateAndAcceptCookies(page);
+    const age = await sessionFileAge();
+    if (age !== null) {
+      context = await loadSession(browser);
+      page = await context.newPage();
+      console.log('Navigating to Availity...');
+      await page.goto('https://essentials.availity.com/static/web/onb/onboarding-ui-apps/navigation/#/', { waitUntil: 'networkidle', timeout: 60000 });
+      if (page.url().includes('logout') || page.url().includes('login')) {
+        console.log('Saved session expired -- running full login');
+        await context.close();
+        context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+        page = await context.newPage();
+        const { username, password } = await promptCredentials();
+        await login(page, username, password);
+        await handle2FA(page);
+        await saveSession(context);
+        await skipUpdateAndAcceptCookies(page);
+      }
+    } else {
+      console.log('No saved session -- running full login');
+      context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      page = await context.newPage();
+      const { username, password } = await promptCredentials();
+      await login(page, username, password);
+      await handle2FA(page);
+      await saveSession(context);
+      await skipUpdateAndAcceptCookies(page);
+    }
 
     // Get organization name
     const organization = await getOrganizationName(page);
 
-    // Navigate to claim status page
+    // Navigate to claim status page (needed to get the state list)
     await navigateToClaimStatus(page);
-
-    // Check for previous run and get completed states
-    const completedStates = await getCompletedStates();
-    const allPayers: PayerInfo[] = [];
-
-    // If resuming, load existing data
-    if (completedStates.length > 0) {
-      console.log('Resuming from previous run...');
-      const lastFile = excelFilePath || path.join(os.homedir(), 'Documents',
-        (await require('fs').promises.readdir(path.join(os.homedir(), 'Documents')))
-          .filter((f: string) => f.startsWith('availity_payers_') && f.endsWith('.xlsx'))
-          .sort()
-          .reverse()[0]
-      );
-
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(lastFile);
-      const worksheet = workbook.getWorksheet('Payers by State');
-
-      worksheet?.eachRow((row, rowNumber) => {
-        if (rowNumber > 1) {
-          allPayers.push({
-            organization: row.getCell(1).value?.toString() || '',
-            state: row.getCell(2).value?.toString() || '',
-            payerName: row.getCell(3).value?.toString() || '',
-            payerId: row.getCell(4).value?.toString() || '',
-            url: row.getCell(5).value?.toString() || ''
-          });
-        }
-      });
-      excelFilePath = lastFile;
-      console.log(`Loaded ${allPayers.length} existing records`);
-    }
 
     // Get all states
     const states = await getAllStates(page);
+    console.log(`\nTotal states: ${states.length}`);
 
-    // Filter out completed states
-    const remainingStates = states.filter(s => !completedStates.includes(s));
-    console.log(`\nStates to process: ${remainingStates.length}/${states.length}`);
+    // ── Pass 1: collect payer names per state (no URL clicks) ──────────────
+    console.log('\n=== Pass 1: Collecting payer names per state ===');
+    const statePayerNames = new Map<string, string[]>();
+    const BROWSER_RESTART_INTERVAL = 10;
 
-    // Process each remaining state
-    for (const state of remainingStates) {
-      // Check for session timeout
-      if (await checkSessionTimeout(page)) {
-        console.log('💾 Saving progress before exit...');
-        await saveToExcel(allPayers);
-        console.log(`\n✓ Progress saved: ${allPayers.length} records`);
-        console.log(`✓ File: ${excelFilePath}`);
-        console.log('\n⚠️  Session expired - please run the script again to resume');
-        return;
+    for (let i = 0; i < states.length; i++) {
+      // Restart browser every 10 states to prevent memory exhaustion
+      if (i > 0 && i % BROWSER_RESTART_INTERVAL === 0) {
+        console.log(`\n♻️  Restarting browser after ${i} states...`);
+        await saveSession(context);
+        await page.close();
+        await context.close();
+        await browser!.close();
+        browser = await chromium.launch({ headless: true, channel: 'chrome' });
+        context = await loadSession(browser);
+        page = await context.newPage();
+        await page.goto(NAV_ROOT, { waitUntil: 'networkidle', timeout: 60000 });
+        if (page.url().includes('logout') || page.url().includes('login')) {
+          throw new Error('Session expired during browser restart');
+        }
+        console.log('✓ Browser restarted');
       }
 
+      const state = states[i];
+      console.log(`\n[${i + 1}/${states.length}] ${state}`);
       try {
-        console.log(`\n=== Processing state: ${state} (${remainingStates.indexOf(state) + 1}/${remainingStates.length}) ===`);
         await selectState(page, state);
-        const payers = await getPayersForState(page, state, organization);
-        allPayers.push(...payers);
-
-        // Save progress after each state
-        await saveToExcel(allPayers, allPayers.length === payers.length);
-      } catch (error: any) {
-        // Check if it's a timeout error
-        if (await checkSessionTimeout(page)) {
-          console.log('💾 Saving progress before exit...');
-          await saveToExcel(allPayers);
-          console.log(`\n✓ Progress saved: ${allPayers.length} records`);
-          console.log(`✓ File: ${excelFilePath}`);
-          console.log('\n⚠️  Session expired - please run the script again to resume');
-          return;
-        }
-
-        console.error(`✗ Error processing ${state}: ${error.message}`);
-        console.log(`Continuing to next state...`);
-        continue;
+        const names = await getPayerNamesForState(page);
+        statePayerNames.set(state, names);
+      } catch (err: any) {
+        console.log(`  ✗ ${err.message.split('\n')[0]}`);
+        statePayerNames.set(state, []);
       }
     }
+
+    // Build unique payer → first representative state
+    const payerFirstState = new Map<string, string>();
+    for (const [state, names] of statePayerNames) {
+      for (const name of names) {
+        if (!payerFirstState.has(name)) payerFirstState.set(name, state);
+      }
+    }
+    console.log(`\nUnique payers across all states: ${payerFirstState.size}`);
+
+    // Group unique payers by their representative state (minimises state switches)
+    const stateUniquePayerList = new Map<string, string[]>();
+    for (const [payerName, state] of payerFirstState) {
+      if (!stateUniquePayerList.has(state)) stateUniquePayerList.set(state, []);
+      stateUniquePayerList.get(state)!.push(payerName);
+    }
+
+    // ── Pass 2: fetch payerId for each unique payer ────────────────────────
+    console.log('\n=== Pass 2: Fetching payer IDs (one click per unique payer) ===');
+    const payerToId = new Map<string, string>();
+    let stateGroupsProcessed = 0;
+
+    for (const [repState, payerNames] of stateUniquePayerList) {
+      if (stateGroupsProcessed > 0 && stateGroupsProcessed % BROWSER_RESTART_INTERVAL === 0) {
+        console.log(`\n♻️  Restarting browser...`);
+        await saveSession(context);
+        await page.close();
+        await context.close();
+        await browser!.close();
+        browser = await chromium.launch({ headless: true, channel: 'chrome' });
+        context = await loadSession(browser);
+        page = await context.newPage();
+        await page.goto(NAV_ROOT, { waitUntil: 'networkidle', timeout: 60000 });
+      }
+
+      console.log(`\nNavigating to ${repState} for ${payerNames.length} unique payer(s)...`);
+      try {
+        await page.goto(NAV_ROOT, { waitUntil: 'networkidle', timeout: 30000 });
+        await selectState(page, repState);
+      } catch (err: any) {
+        console.log(`  ✗ Could not navigate to ${repState}: ${err.message.split('\n')[0]}`);
+        stateGroupsProcessed++;
+        continue;
+      }
+
+      for (const payerName of payerNames) {
+        try {
+          const payerId = await getPayerIdByName(page, payerName);
+          payerToId.set(payerName, payerId);
+          console.log(`  ✓ ${payerName} (${payerId})`);
+        } catch (err: any) {
+          console.log(`  ✗ ${payerName}: ${err.message.split('\n')[0]}`);
+          payerToId.set(payerName, '');
+        }
+      }
+      stateGroupsProcessed++;
+    }
+
+    // Handle WELLCARE exception: RI and VT have WELLCAREMC instead of A6007
+    const WELLCARE_EXCEPTION_STATES = ['Rhode Island', 'Vermont'];
+    if (statePayerNames.get('Rhode Island')?.includes('WELLCARE')) {
+      console.log('\nCapturing WELLCARE exception (Rhode Island)...');
+      try {
+        await page.goto(NAV_ROOT, { waitUntil: 'networkidle', timeout: 30000 });
+        await selectState(page, 'Rhode Island');
+        const riId = await getPayerIdByName(page, 'WELLCARE');
+        const defaultId = payerToId.get('WELLCARE') || '';
+        if (riId && riId !== defaultId) {
+          console.log(`  WELLCARE RI/VT override: ${riId} (default: ${defaultId})`);
+          payerToId.set('WELLCARE__RI_VT_OVERRIDE', riId);
+        }
+      } catch (err: any) {
+        console.log(`  ✗ WELLCARE RI exception: ${err.message.split('\n')[0]}`);
+      }
+    }
+
+    // ── Pass 3: build full dataset ─────────────────────────────────────────
+    console.log('\n=== Pass 3: Building final dataset ===');
+    const allPayers: PayerInfo[] = [];
+    for (const [state, names] of statePayerNames) {
+      for (const name of names) {
+        let payerId = payerToId.get(name) || '';
+        if (name === 'WELLCARE' && WELLCARE_EXCEPTION_STATES.includes(state)) {
+          payerId = payerToId.get('WELLCARE__RI_VT_OVERRIDE') || payerId;
+        }
+        allPayers.push({ organization, state, payerName: name, payerId, url: '' });
+      }
+    }
+
+    await saveToExcel(allPayers, true);
 
     // Final summary
     console.log(`\n✓ Scraping completed!`);
